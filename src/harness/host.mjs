@@ -4,17 +4,19 @@ import { createModels } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
+import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 
 export const AUTH_PROVIDERS = [
   { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", model: "gemini-3.6-flash" },
   { id: "anthropic", label: "Anthropic", apiKeyLabel: "Anthropic API key", model: "claude-sonnet-4-5" },
   { id: "github-copilot", label: "GitHub Copilot", apiKeyLabel: "GitHub token", model: "gpt-4.1" },
+  { id: "kimi-coding", label: "Kimi K3", apiKeyLabel: "Kimi API key", model: "k3" },
   { id: "openrouter", label: "OpenRouter", apiKeyLabel: "OpenRouter API key", model: "openai/gpt-4o-mini" }
 ];
 
 const providers = new Map(AUTH_PROVIDERS.map((provider) => [provider.id, provider]));
-const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, openrouterProvider];
+const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, kimiCodingProvider, openrouterProvider];
 
 export class PiCredentialStore {
   constructor(credentials = {}, persist = async (_credentials) => {}) {
