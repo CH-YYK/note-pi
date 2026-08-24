@@ -30,9 +30,14 @@ export class NotePiSettingsTab extends PluginSettingTab {
           apiKeyInput = text.inputEl;
         })
         .addButton((button) => button.setButtonText("Save API key").setCta().onClick(async () => {
-          await this.plugin.saveApiKey(apiKeyInput.value);
-          new Notice(`${provider.label} API key saved.`);
-          this.display();
+          try {
+            await this.plugin.saveApiKey(apiKeyInput.value);
+            new Notice(`${provider.label} API key saved.`);
+          } catch (error) {
+            new Notice(error instanceof Error ? error.message : "Could not save the API key.");
+          } finally {
+            this.display();
+          }
         }));
     }
 
@@ -45,6 +50,8 @@ export class NotePiSettingsTab extends PluginSettingTab {
           try {
             await this.plugin.loginWithOAuth(provider.id);
             new Notice(`${provider.label} connected.`);
+          } catch (error) {
+            new Notice(error instanceof Error ? error.message : "Provider sign-in could not start.");
           } finally {
             this.display();
           }

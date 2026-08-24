@@ -5,7 +5,7 @@ import { NotePiSettingsTab } from "./settings";
 import { ObsidianAgentView, VIEW_TYPE_NOTE_PI } from "./view";
 
 type HarnessEvent = { type: string; requestId: string; node?: string; pid?: number };
-type OAuthPrompt = { message: string; placeholder?: string };
+type OAuthPrompt = { message: string; placeholder?: string; options?: readonly { id: string; label: string; description?: string }[] };
 type OAuthEvent = { type: string; message?: string; url?: string; instructions?: string; userCode?: string; verificationUri?: string };
 export interface NotePiCredential { type: "api_key" | "oauth"; key?: string; access?: string; refresh?: string; expires?: number; [key: string]: unknown; }
 export interface NotePiSettings { providerId: string; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
@@ -63,7 +63,8 @@ export default class NotePiPlugin extends Plugin {
   async loginWithOAuth(providerId: string) {
     await this.startHarness().loginWithOAuth(providerId, {
       prompt: async (prompt: OAuthPrompt) => {
-        const answer = window.prompt(prompt.message, prompt.placeholder ?? "");
+        const options = prompt.options?.map((option) => `${option.id}: ${option.label}${option.description ? ` — ${option.description}` : ""}`).join("\n");
+        const answer = window.prompt(options ? `${prompt.message}\n\n${options}` : prompt.message, prompt.options?.[0]?.id ?? prompt.placeholder ?? "");
         if (answer === null) throw new Error("Sign-in cancelled.");
         return answer;
       },
