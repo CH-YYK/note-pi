@@ -4,19 +4,17 @@ import { createModels } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
-import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 
 export const AUTH_PROVIDERS = [
-  { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", supportsApiKey: true, supportsOAuth: false, model: "gemini-3.6-flash" },
-  { id: "anthropic", label: "Anthropic", apiKeyLabel: "Anthropic API key", supportsApiKey: true, supportsOAuth: true, model: "claude-sonnet-4-5" },
-  { id: "openai-codex", label: "ChatGPT Codex", supportsApiKey: false, supportsOAuth: true, model: "gpt-5.4" },
-  { id: "github-copilot", label: "GitHub Copilot", apiKeyLabel: "GitHub token", supportsApiKey: true, supportsOAuth: true, model: "gpt-4.1" },
-  { id: "openrouter", label: "OpenRouter", apiKeyLabel: "OpenRouter API key", supportsApiKey: true, supportsOAuth: true, model: "openai/gpt-4o-mini" }
+  { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", model: "gemini-3.6-flash" },
+  { id: "anthropic", label: "Anthropic", apiKeyLabel: "Anthropic API key", model: "claude-sonnet-4-5" },
+  { id: "github-copilot", label: "GitHub Copilot", apiKeyLabel: "GitHub token", model: "gpt-4.1" },
+  { id: "openrouter", label: "OpenRouter", apiKeyLabel: "OpenRouter API key", model: "openai/gpt-4o-mini" }
 ];
 
 const providers = new Map(AUTH_PROVIDERS.map((provider) => [provider.id, provider]));
-const providerFactories = [googleProvider, anthropicProvider, openaiCodexProvider, githubCopilotProvider, openrouterProvider];
+const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, openrouterProvider];
 
 export class PiCredentialStore {
   constructor(credentials = {}, persist = async (_credentials) => {}) {
@@ -60,23 +58,14 @@ export class EmbeddedHarness {
 
   providerState(providerId = this.providerId) {
     const credential = this.credentialStore?.credentials[providerId];
-    if (!credential || (credential.type === "api_key" && !credential.key?.trim())) return "missing";
+    if (!credential || credential.type !== "api_key" || !credential.key?.trim()) return "missing";
     return "configured";
   }
 
   async loginWithApiKey(providerId, apiKey) {
     this.assertProvider(providerId);
-    if (!providers.get(providerId).supportsApiKey) throw new Error(`${providers.get(providerId).label} only supports subscription sign-in.`);
     if (!apiKey.trim()) throw new Error("Enter an API key before saving.");
     await this.models.login(providerId, "api_key", { prompt: async () => apiKey.trim(), notify: () => {} });
-    this.agent = undefined;
-  }
-
-  async loginWithOAuth(providerId, interaction) {
-    this.assertProvider(providerId);
-    const provider = providers.get(providerId);
-    if (!provider.supportsOAuth) throw new Error(`${provider.label} does not provide a bundled OAuth login.`);
-    await this.models.login(providerId, "oauth", interaction);
     this.agent = undefined;
   }
 
@@ -123,7 +112,7 @@ export class EmbeddedHarness {
   }
 
   createAgent() {
-    if (this.providerState() !== "configured") throw new Error("No model provider is configured. Open provider settings to add an API key or sign in.");
+    if (this.providerState() !== "configured") throw new Error("No model provider is configured. Open provider settings to add an API key.");
     if (this.agent) return this.agent;
     const provider = providers.get(this.providerId);
     const model = this.models.getModel(provider.id, provider.model);

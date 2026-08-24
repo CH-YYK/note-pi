@@ -7,7 +7,7 @@ export class NotePiSettingsTab extends PluginSettingTab {
   display(): void {
     this.containerEl.empty();
     this.containerEl.createEl("h2", { text: "Note Pi" });
-    this.containerEl.createEl("p", { text: "Choose a provider, then connect it with an API key or supported subscription sign-in." });
+    this.containerEl.createEl("p", { text: "Choose a provider, then connect it with its API key or token." });
     new Setting(this.containerEl)
       .setName("Provider")
       .setDesc("The selected provider supplies the model used for new chat turns.")
@@ -18,47 +18,26 @@ export class NotePiSettingsTab extends PluginSettingTab {
 
     const provider = this.plugin.selectedProvider();
     const status = this.plugin.providerStatus();
-    if (provider.supportsApiKey) {
-      let apiKeyInput: HTMLInputElement;
-      new Setting(this.containerEl)
-        .setName(provider.apiKeyLabel ?? "API key")
-        .setDesc(status === "configured" ? "An API key or sign-in credential is stored locally for this provider." : "Stored in this plugin's local data file, not OS keychain storage.")
-        .addText((text) => {
-          text.setPlaceholder("Paste an API key");
-          text.inputEl.type = "password";
-          text.inputEl.autocomplete = "off";
-          apiKeyInput = text.inputEl;
-        })
-        .addButton((button) => button.setButtonText("Save API key").setCta().onClick(async () => {
-          try {
-            await this.plugin.saveApiKey(apiKeyInput.value);
-            new Notice(`${provider.label} API key saved.`);
-          } catch (error) {
-            new Notice(error instanceof Error ? error.message : "Could not save the API key.");
-          } finally {
-            this.display();
-          }
-        }));
-    }
-
-    if (provider.supportsOAuth) {
-      new Setting(this.containerEl)
-        .setName(`${provider.label} sign-in`)
-        .setDesc("Uses Pi's provider-owned browser sign-in. Tokens are refreshed by the harness and stored in plugin data.")
-        .addButton((button) => button.setButtonText(`Sign in to ${provider.label}`).setCta().onClick(async () => {
-          button.setButtonText("Waiting for sign-in…").setDisabled(true);
-          try {
-            await this.plugin.loginWithOAuth(provider.id);
-            new Notice(`${provider.label} connected.`);
-          } catch (error) {
-            new Notice(error instanceof Error ? error.message : "Provider sign-in could not start.");
-          } finally {
-            this.display();
-          }
-        }));
-    } else {
-      this.containerEl.createEl("p", { cls: "note-pi-auth-note", text: "Google account browser sign-in is not bundled by Pi. Use a Gemini API key, including one with Google AI Studio free-tier quota." });
-    }
+    let apiKeyInput: HTMLInputElement;
+    new Setting(this.containerEl)
+      .setName(provider.apiKeyLabel)
+      .setDesc(status === "configured" ? "An API key or token is stored locally for this provider." : "Stored in this plugin's local data file, not OS keychain storage.")
+      .addText((text) => {
+        text.setPlaceholder("Paste an API key or token");
+        text.inputEl.type = "password";
+        text.inputEl.autocomplete = "off";
+        apiKeyInput = text.inputEl;
+      })
+      .addButton((button) => button.setButtonText("Save API key").setCta().onClick(async () => {
+        try {
+          await this.plugin.saveApiKey(apiKeyInput.value);
+          new Notice(`${provider.label} API key saved.`);
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : "Could not save the API key.");
+        } finally {
+          this.display();
+        }
+      }));
 
     if (status === "configured") {
       new Setting(this.containerEl)

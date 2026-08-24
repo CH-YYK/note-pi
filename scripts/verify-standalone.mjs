@@ -11,7 +11,7 @@ assert.equal(manifest.isDesktopOnly, true, "The embedded Node runtime requires a
 
 const bundle = readFileSync("main.js", "utf8");
 assert.ok(!bundle.includes("import(__rewriteRelativeImportExtension(specifier))"), "Pi's dynamic Node imports must be bridged for the Obsidian renderer.");
-assert.ok(bundle.includes("openaiCodex: () => openaiCodexOAuth"), "Pi OAuth flows must be bundled instead of using import.meta-based CLI loading.");
+assert.ok(!bundle.includes("openaiCodex: () => openaiCodexOAuth"), "The API-only plugin must not bundle OAuth flow loaders.");
 
 const health = await new EmbeddedHarness().health("standalone");
 assert.equal(health.piHostInstallationRequired, false);

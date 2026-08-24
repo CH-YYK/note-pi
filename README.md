@@ -7,8 +7,8 @@ A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by a
 - Opens an Obsidian chat view from the command palette.
 - Presents the active note as lightweight context, without making the note the agent's source of truth.
 - Streams status and assistant messages into the view.
-- Lets you choose Google Gemini, Anthropic, ChatGPT Codex, GitHub Copilot, or OpenRouter.
-- Stores Pi API-key and OAuth credentials in the plugin's local Obsidian data file and refreshes OAuth credentials through the harness.
+- Lets you choose Google Gemini, Anthropic, GitHub Copilot, or OpenRouter.
+- Stores provider API keys and tokens in the plugin's local Obsidian data file.
 - Checks Obsidian's embedded Node version against Pi's Node 22.19 runtime floor.
 
 ## Architecture
@@ -24,9 +24,9 @@ npm install
 npm run verify
 ```
 
-To try it in Obsidian, install or symlink the built `main.js`, `manifest.json`, and `styles.css` into a desktop vault's `.obsidian/plugins/note-pi/` directory, enable the plugin, open **Open Note Pi settings**, select a provider, then save an API key or use its available sign-in button. Obsidian plugin data is local storage, not OS keychain-backed secret storage.
+To try it in Obsidian, install or symlink the built `main.js`, `manifest.json`, and `styles.css` into a desktop vault's `.obsidian/plugins/note-pi/` directory, enable the plugin, open **Open Note Pi settings**, select a provider, then save its API key or token. Obsidian plugin data is local storage, not OS keychain-backed secret storage.
 
-Google Gemini account sign-in is not bundled by current Pi releases. A Gemini API key can use Google AI Studio free-tier quota when available. The bundled OAuth paths are Anthropic, ChatGPT Codex, GitHub Copilot, and OpenRouter.
+Note Pi intentionally supports API keys and tokens only. A Gemini API key can use Google AI Studio free-tier quota when available.
 
 ## Release notes
 

@@ -13,4 +13,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Renamed the plugin and repository to Note Pi for Obsidian community-plugin naming compliance.
-- Added provider selection, API-key setup, and Pi-native OAuth sign-in for supported providers.
+- Added provider selection and API-key setup for supported providers.
+
+### Fixed
+
+- Removed the unsupported OAuth sign-in flow in Obsidian; provider setup now uses API keys and tokens only.

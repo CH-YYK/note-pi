@@ -38,26 +38,16 @@ test("API-key login persists a provider-scoped Pi credential", async () => {
   assert.deepEqual(persisted, [{ google: { type: "api_key", key: "test-gemini-key" } }]);
 });
 
-test("OAuth credentials select a configured bundled provider without a host Pi install", async () => {
-  const harness = new EmbeddedHarness();
-  await harness.configure({
-    providerId: "openai-codex",
-    credentials: { "openai-codex": { type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 60_000 } }
-  });
-
-  assert.equal(harness.providerState(), "configured");
-  assert.doesNotThrow(() => harness.createAgent());
-});
-
-test("Google browser login remains explicitly unsupported", async () => {
+test("OAuth-only provider selections are rejected after migration to API-only authentication", async () => {
   const harness = new EmbeddedHarness();
   await harness.configure({ providerId: "google" });
 
-  await assert.rejects(() => harness.loginWithOAuth("google", { prompt: async () => "", notify: () => {} }), /does not provide a bundled OAuth login/);
+  await assert.rejects(() => harness.configure({ providerId: "openai-codex" }), /Unsupported provider/);
 });
 
 test("every advertised provider has its configured chat model in Pi's catalog", async () => {
   for (const provider of AUTH_PROVIDERS) {
+    assert.ok(provider.apiKeyLabel, `${provider.id} must offer an API-key label`);
     const harness = new EmbeddedHarness();
     await harness.configure({
       providerId: provider.id,

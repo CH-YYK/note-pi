@@ -5,9 +5,7 @@ import { NotePiSettingsTab } from "./settings";
 import { ObsidianAgentView, VIEW_TYPE_NOTE_PI } from "./view";
 
 type HarnessEvent = { type: string; requestId: string; node?: string; pid?: number };
-type OAuthPrompt = { message: string; placeholder?: string; options?: readonly { id: string; label: string; description?: string }[] };
-type OAuthEvent = { type: string; message?: string; url?: string; instructions?: string; userCode?: string; verificationUri?: string };
-export interface NotePiCredential { type: "api_key" | "oauth"; key?: string; access?: string; refresh?: string; expires?: number; [key: string]: unknown; }
+export interface NotePiCredential { type: "api_key"; key?: string; [key: string]: unknown; }
 export interface NotePiSettings { providerId: string; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
 const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", credentials: {}, googleApiKey: "" };
 
@@ -60,29 +58,6 @@ export default class NotePiPlugin extends Plugin {
     this.refreshViews();
   }
 
-  async loginWithOAuth(providerId: string) {
-    await this.startHarness().loginWithOAuth(providerId, {
-      prompt: async (prompt: OAuthPrompt) => {
-        const options = prompt.options?.map((option) => `${option.id}: ${option.label}${option.description ? ` — ${option.description}` : ""}`).join("\n");
-        const answer = window.prompt(options ? `${prompt.message}\n\n${options}` : prompt.message, prompt.options?.[0]?.id ?? prompt.placeholder ?? "");
-        if (answer === null) throw new Error("Sign-in cancelled.");
-        return answer;
-      },
-      notify: (event: OAuthEvent) => {
-        if (event.type === "auth_url") {
-          new Notice(event.instructions ?? "Continue sign-in in your browser.");
-          window.open(event.url, "_blank");
-        } else if (event.type === "device_code") {
-          new Notice(`Enter code ${event.userCode} at ${event.verificationUri}`);
-          window.open(event.verificationUri, "_blank");
-        } else {
-          new Notice(event.message ?? "Provider sign-in is in progress.");
-        }
-      }
-    });
-    this.refreshViews();
-  }
-
   async logoutProvider(providerId: string) {
     await this.startHarness().logout(providerId);
     this.refreshViews();
@@ -113,7 +88,8 @@ export default class NotePiPlugin extends Plugin {
   private normalizeSettings(saved: Partial<NotePiSettings> | null): NotePiSettings {
     const credentials = { ...(saved?.credentials ?? {}) };
     if (saved?.googleApiKey?.trim() && !credentials.google) credentials.google = { type: "api_key", key: saved.googleApiKey.trim() };
-    return { ...DEFAULT_SETTINGS, ...saved, credentials, providerId: saved?.providerId ?? "google", googleApiKey: "" };
+    const providerId = AUTH_PROVIDERS.some((provider) => provider.id === saved?.providerId) ? saved?.providerId ?? "google" : "google";
+    return { ...DEFAULT_SETTINGS, ...saved, credentials, providerId, googleApiKey: "" };
   }
 
   private async configureHarness() {
