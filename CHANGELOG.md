@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Gemini provider settings, streaming chat updates, cancellation, transcript rendering, and note-context display.
 - Runtime compatibility and standalone-harness verification tests.
 - Moonshot AI Kimi K3 API-key provider support.
+- Kimi Code as a separate API-key provider, using Pi's Kimi Code endpoint and model catalog.
 - Provider-specific model selection backed by Pi's bundled model catalog.
 
 ### Changed

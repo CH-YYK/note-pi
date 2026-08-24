@@ -98,12 +98,9 @@ export default class NotePiPlugin extends Plugin {
   private normalizeSettings(saved: Partial<NotePiSettings> | null): NotePiSettings {
     const credentials = { ...(saved?.credentials ?? {}) };
     if (saved?.googleApiKey?.trim() && !credentials.google) credentials.google = { type: "api_key", key: saved.googleApiKey.trim() };
-    if (credentials["kimi-coding"] && !credentials.moonshotai) credentials.moonshotai = credentials["kimi-coding"];
-    delete credentials["kimi-coding"];
-    const requestedProviderId = saved?.providerId === "kimi-coding" ? "moonshotai" : saved?.providerId;
-    const providerId = AUTH_PROVIDERS.some((provider) => provider.id === requestedProviderId) ? requestedProviderId ?? "google" : "google";
+    const providerId = AUTH_PROVIDERS.some((provider) => provider.id === saved?.providerId) ? saved?.providerId ?? "google" : "google";
     const defaultModel = AUTH_PROVIDERS.find((provider) => provider.id === providerId)?.defaultModel;
-    const modelId = saved?.providerId === "kimi-coding" ? defaultModel : saved?.modelId ?? defaultModel;
+    const modelId = saved?.modelId ?? defaultModel;
     return { ...DEFAULT_SETTINGS, ...saved, credentials, providerId, modelId, googleApiKey: "" };
   }
 

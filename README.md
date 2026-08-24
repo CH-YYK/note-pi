@@ -7,7 +7,7 @@ A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by a
 - Opens an Obsidian chat view from the command palette.
 - Presents the active note as lightweight context, without making the note the agent's source of truth.
 - Streams status and assistant messages into the view.
-- Lets you choose Google Gemini, Anthropic, GitHub Copilot, Moonshot AI, or OpenRouter.
+- Lets you choose Google Gemini, Anthropic, GitHub Copilot, Kimi Code, Moonshot AI, or OpenRouter.
 - Stores provider API keys and tokens in the plugin's local Obsidian data file.
 - Checks Obsidian's embedded Node version against Pi's Node 22.19 runtime floor.
 
@@ -26,7 +26,7 @@ npm run verify
 
 To try it in Obsidian, install or symlink the built `main.js`, `manifest.json`, and `styles.css` into a desktop vault's `.obsidian/plugins/note-pi/` directory, enable the plugin, open **Open Note Pi settings**, choose a provider and model from Pi's catalog, then save its API key or token. Obsidian plugin data is local storage, not OS keychain-backed secret storage.
 
-Note Pi intentionally supports API keys and tokens only. A Gemini API key can use Google AI Studio free-tier quota when available. Moonshot AI uses Pi's built-in `https://api.moonshot.ai/v1` endpoint, so only the Moonshot API key is required.
+Note Pi intentionally supports API keys and tokens only. A Gemini API key can use Google AI Studio free-tier quota when available. Kimi Code (`https://api.kimi.com/coding`) and Moonshot AI (`https://api.moonshot.ai/v1`) are separate Pi providers with separate credentials and model catalogs.
 
 ## Release notes
 
