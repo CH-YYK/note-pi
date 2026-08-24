@@ -1,6 +1,8 @@
 import * as piAgentCore from "@earendil-works/pi-agent-core";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { createModels } from "@earendil-works/pi-ai";
+import nodeFetch from "node-fetch";
+import { Readable } from "node:stream";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
@@ -19,6 +21,21 @@ export const AUTH_PROVIDERS = [
 
 const providers = new Map(AUTH_PROVIDERS.map((provider) => [provider.id, provider]));
 const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, kimiCodingProvider, moonshotaiProvider, openrouterProvider];
+
+// Pi's provider SDKs consume Web streams, while node-fetch exposes a Node stream.
+// Adapt the response so the Electron renderer can use Node networking without
+// falling back to its CORS-constrained global fetch implementation.
+export async function nodeBackedFetch(input, init) {
+  const response = await nodeFetch(input, init);
+  return {
+    body: response.body ? Readable.toWeb(response.body) : null,
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+    ok: response.ok,
+    url: response.url
+  };
+}
 
 export class PiCredentialStore {
   constructor(credentials = {}, persist = async (_credentials) => {}) {
@@ -128,7 +145,12 @@ export class EmbeddedHarness {
     if (this.agent) return this.agent;
     const model = this.models.getModel(this.providerId, this.modelId);
     if (!model) throw new Error(`Bundled chat model is unavailable: ${this.modelId}`);
-    this.agent = new Agent({ initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model }, streamFn: this.models.streamSimple.bind(this.models) });
+    this.agent = new Agent({
+      initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model },
+      // Obsidian renderer fetch is subject to Chromium's network policy. Pi must use
+      // a Node-backed fetch so provider requests use the same transport as Node tests.
+      streamFn: (selectedModel, context, options) => this.models.streamSimple(selectedModel, context, { ...options, fetch: nodeBackedFetch })
+    });
     return this.agent;
   }
 
