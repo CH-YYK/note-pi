@@ -34,9 +34,26 @@ export class ObsidianAgentView extends ItemView {
   private renderHeader() {
     const header = this.contentEl.createDiv({ cls: "agent-header" });
     header.createDiv({ cls: "agent-title", text: "Note Pi" });
-    const model = this.plugin.selectedModel();
-    const profile = header.createDiv({ cls: "agent-profile", text: model?.label ?? "vault-assistant" });
-    profile.setAttribute("aria-label", "Active harness profile");
+    const modelPicker = header.createDiv({ cls: "agent-model-picker" });
+    modelPicker.createSpan({ cls: "agent-model-label", text: "Model" });
+    const select = modelPicker.createEl("select", { cls: "dropdown agent-model-select", attr: { "aria-label": "Chat model" } });
+    for (const model of this.plugin.modelOptions()) select.createEl("option", { value: model.id, text: model.label });
+    select.value = this.plugin.selectedModel()?.id ?? this.plugin.selectedProvider().defaultModel;
+    select.onchange = async () => {
+      if (this.isStreaming) {
+        select.value = this.plugin.selectedModel()?.id ?? this.plugin.selectedProvider().defaultModel;
+        new Notice("Wait for the current response before changing models.");
+        return;
+      }
+      select.disabled = true;
+      try {
+        await this.plugin.saveModel(select.value);
+        new Notice(`Now using ${this.plugin.selectedModel()?.label ?? select.value}.`);
+      } catch (error) {
+        new Notice(error instanceof Error ? error.message : "Could not change the chat model.");
+        select.disabled = false;
+      }
+    };
   }
 
   private renderTranscript() {
