@@ -4,19 +4,19 @@ import { createModels } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
-import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
+import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 
 export const AUTH_PROVIDERS = [
   { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", defaultModel: "gemini-3.6-flash" },
   { id: "anthropic", label: "Anthropic", apiKeyLabel: "Anthropic API key", defaultModel: "claude-sonnet-4-5" },
   { id: "github-copilot", label: "GitHub Copilot", apiKeyLabel: "GitHub token", defaultModel: "gpt-4.1" },
-  { id: "kimi-coding", label: "Moonshot AI", apiKeyLabel: "Moonshot AI API key", defaultModel: "k3" },
+  { id: "moonshotai", label: "Moonshot AI", apiKeyLabel: "Moonshot AI API key", defaultModel: "kimi-k3" },
   { id: "openrouter", label: "OpenRouter", apiKeyLabel: "OpenRouter API key", defaultModel: "openai/gpt-4o-mini" }
 ];
 
 const providers = new Map(AUTH_PROVIDERS.map((provider) => [provider.id, provider]));
-const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, kimiCodingProvider, openrouterProvider];
+const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, moonshotaiProvider, openrouterProvider];
 
 export class PiCredentialStore {
   constructor(credentials = {}, persist = async (_credentials) => {}) {

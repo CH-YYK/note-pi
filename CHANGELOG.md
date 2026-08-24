@@ -20,3 +20,4 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Removed the unsupported OAuth sign-in flow in Obsidian; provider setup now uses API keys and tokens only.
+- Route Moonshot AI tokens through Pi's Moonshot API provider and endpoint.

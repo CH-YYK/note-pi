@@ -61,11 +61,11 @@ test("every advertised provider exposes its default chat model in Pi's catalog",
 test("a selected provider model replaces its default when it exists in Pi's catalog", async () => {
   const harness = new EmbeddedHarness();
   await harness.configure({
-    providerId: "kimi-coding",
-    modelId: "k3-256k",
-    credentials: { "kimi-coding": { type: "api_key", key: "test-key" } }
+    providerId: "moonshotai",
+    modelId: "kimi-k3",
+    credentials: { moonshotai: { type: "api_key", key: "test-key" } }
   });
 
-  assert.equal(harness.modelId, "k3-256k");
+  assert.equal(harness.modelId, "kimi-k3");
   assert.doesNotThrow(() => harness.createAgent());
 });
