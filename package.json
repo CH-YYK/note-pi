@@ -1,0 +1,26 @@
+{
+  "name": "obsidian-agent",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Desktop-only Obsidian view backed by an embedded Pi harness runtime",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/**/*.test.mjs",
+    "spike:surface": "node scripts/measure-pi-surface.mjs",
+    "verify": "npm run typecheck && npm run build && npm run test && node scripts/verify-standalone.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-ai": "0.84.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "esbuild": "^0.28.1",
+    "obsidian": "^1.13.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

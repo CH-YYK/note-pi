@@ -1,0 +1,9 @@
+{
+  "id": "obsidian-agent",
+  "name": "Obsidian Agent",
+  "version": "0.1.0",
+  "minAppVersion": "1.10.0",
+  "description": "A desktop-only Pi harness view for Obsidian.",
+  "author": "Kyle",
+  "isDesktopOnly": true
+}
