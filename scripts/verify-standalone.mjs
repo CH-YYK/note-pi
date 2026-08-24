@@ -9,6 +9,9 @@ for (const required of ["main.js", "manifest.json"]) {
 const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
 assert.equal(manifest.isDesktopOnly, true, "The embedded Node runtime requires a desktop-only plugin.");
 
+const bundle = readFileSync("main.js", "utf8");
+assert.ok(!bundle.includes("import(__rewriteRelativeImportExtension(specifier))"), "Pi's dynamic Node imports must be bridged for the Obsidian renderer.");
+
 const health = await new EmbeddedHarness().health("standalone");
 assert.equal(health.piHostInstallationRequired, false);
 assert.equal(health.piAgentCoreLoaded, true, "Pi agent core must load from the plugin's packaged dependencies.");

@@ -1,101 +1,141 @@
 import * as piAgentCore from "@earendil-works/pi-agent-core";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { createModels } from "@earendil-works/pi-ai";
+import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
+import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 
-const CHAT_MODEL = "gemini-3.6-flash";
+export const AUTH_PROVIDERS = [
+  { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", supportsApiKey: true, supportsOAuth: false, model: "gemini-3.6-flash" },
+  { id: "anthropic", label: "Anthropic", apiKeyLabel: "Anthropic API key", supportsApiKey: true, supportsOAuth: true, model: "claude-sonnet-4-5" },
+  { id: "openai-codex", label: "ChatGPT Codex", supportsApiKey: false, supportsOAuth: true, model: "gpt-5.4" },
+  { id: "github-copilot", label: "GitHub Copilot", apiKeyLabel: "GitHub token", supportsApiKey: true, supportsOAuth: true, model: "gpt-4.1" },
+  { id: "openrouter", label: "OpenRouter", apiKeyLabel: "OpenRouter API key", supportsApiKey: true, supportsOAuth: true, model: "openai/gpt-4o-mini" }
+];
 
-function createGoogleCredentialStore(apiKey) {
-  return {
-    async read(providerId) { return providerId === "google" ? { type: "api_key", key: apiKey } : undefined; },
-    async list() { return [{ providerId: "google", type: "api_key" }]; },
-    async modify(providerId, fn) { return fn(providerId === "google" ? { type: "api_key", key: apiKey } : undefined); },
-    async delete() {}
-  };
+const providers = new Map(AUTH_PROVIDERS.map((provider) => [provider.id, provider]));
+const providerFactories = [googleProvider, anthropicProvider, openaiCodexProvider, githubCopilotProvider, openrouterProvider];
+
+export class PiCredentialStore {
+  constructor(credentials = {}, persist = async (_credentials) => {}) {
+    this.credentials = { ...credentials };
+    this.persist = persist;
+  }
+
+  async read(providerId) { return this.credentials[providerId]; }
+  async list() { return Object.entries(this.credentials).map(([providerId, credential]) => ({ providerId, type: credential.type })); }
+  async modify(providerId, fn) {
+    const current = this.credentials[providerId];
+    const next = await fn(current);
+    if (next !== undefined) {
+      this.credentials[providerId] = next;
+      await this.persist({ ...this.credentials });
+    }
+    return next ?? current;
+  }
+  async delete(providerId) {
+    delete this.credentials[providerId];
+    await this.persist({ ...this.credentials });
+  }
 }
 
 export class EmbeddedHarness {
   constructor() {
-    this.apiKey = "";
+    this.providerId = "google";
+    this.agent = undefined;
+    this.models = undefined;
+    this.credentialStore = undefined;
+  }
+
+  async configure({ providerId = "google", credentials = {}, persistCredentials = async (_credentials) => {} }) {
+    if (!providers.has(providerId)) throw new Error(`Unsupported provider: ${providerId}`);
+    this.providerId = providerId;
+    this.credentialStore = new PiCredentialStore(credentials, persistCredentials);
+    this.models = createModels({ credentials: this.credentialStore });
+    for (const factory of providerFactories) this.models.setProvider(factory());
     this.agent = undefined;
   }
 
-  async configure({ googleApiKey }) {
-    this.apiKey = googleApiKey.trim();
+  providerState(providerId = this.providerId) {
+    const credential = this.credentialStore?.credentials[providerId];
+    if (!credential || (credential.type === "api_key" && !credential.key?.trim())) return "missing";
+    return "configured";
+  }
+
+  async loginWithApiKey(providerId, apiKey) {
+    this.assertProvider(providerId);
+    if (!providers.get(providerId).supportsApiKey) throw new Error(`${providers.get(providerId).label} only supports subscription sign-in.`);
+    if (!apiKey.trim()) throw new Error("Enter an API key before saving.");
+    await this.models.login(providerId, "api_key", { prompt: async () => apiKey.trim(), notify: () => {} });
     this.agent = undefined;
   }
 
-  providerState() {
-    return this.apiKey ? "configured" : "missing";
+  async loginWithOAuth(providerId, interaction) {
+    this.assertProvider(providerId);
+    const provider = providers.get(providerId);
+    if (!provider.supportsOAuth) throw new Error(`${provider.label} does not provide a bundled OAuth login.`);
+    await this.models.login(providerId, "oauth", interaction);
+    this.agent = undefined;
   }
+
+  async logout(providerId = this.providerId) {
+    this.assertProvider(providerId);
+    await this.models.logout(providerId);
+    this.agent = undefined;
+  }
+
   async health(requestId) {
-    return {
-      type: "harness.health",
-      requestId,
-      node: process.versions.node,
-      piAgentCoreLoaded: typeof piAgentCore.AgentHarness === "function",
-      piHostInstallationRequired: false
-    };
+    return { type: "harness.health", requestId, node: process.versions.node, piAgentCoreLoaded: typeof piAgentCore.AgentHarness === "function", piHostInstallationRequired: false };
   }
 
   async chat(text) {
-    if (!this.apiKey) throw new Error("No model provider is configured. Open provider settings to add a Gemini API key.");
-    const configuredModels = createModels({ credentials: createGoogleCredentialStore(this.apiKey) });
-    configuredModels.setProvider(googleProvider());
-    const model = configuredModels.getModel("google", CHAT_MODEL);
-    if (!model) throw new Error(`Bundled chat model is unavailable: ${CHAT_MODEL}`);
-    if (!this.agent) {
-      this.agent = new Agent({
-        initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model },
-        streamFn: configuredModels.streamSimple.bind(configuredModels)
-      });
-    }
-    await this.agent.prompt(text);
-    const response = this.agent.state.messages.at(-1);
-    if (!response || response.role !== "assistant") throw new Error("Harness did not return an assistant response.");
-    if (response.stopReason === "error") throw new Error(response.errorMessage ?? "Provider request failed.");
-    return response.content
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
+    const agent = this.createAgent();
+    await agent.prompt(text);
+    return this.readResponse(agent);
   }
 
   async submit(text, onDelta) {
-    let unsubscribe = () => {};
+    const agent = this.createAgent();
+    const unsubscribe = agent.subscribe((event) => {
+      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") onDelta(event.assistantMessageEvent.delta);
+    });
     try {
-      const result = await this.chatWithEvents(text, onDelta, (stop) => { unsubscribe = stop; });
-      return result;
+      await agent.prompt(text);
+      return this.readResponse(agent);
     } finally {
       unsubscribe();
     }
   }
 
-  async chatWithEvents(text, onDelta, setUnsubscribe) {
-    if (!this.apiKey) throw new Error("No model provider is configured. Open provider settings to add a Gemini API key.");
-    const models = createModels({ credentials: createGoogleCredentialStore(this.apiKey) });
-    models.setProvider(googleProvider());
-    const model = models.getModel("google", CHAT_MODEL);
-    if (!model) throw new Error(`Bundled chat model is unavailable: ${CHAT_MODEL}`);
-    if (!this.agent) this.agent = new Agent({ initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model }, streamFn: models.streamSimple.bind(models) });
-    setUnsubscribe(this.agent.subscribe((event) => {
-      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") onDelta(event.assistantMessageEvent.delta);
-    }));
-    await this.agent.prompt(text);
-    const response = this.agent.state.messages.at(-1);
-    if (!response || response.role !== "assistant") throw new Error("Harness did not return an assistant response.");
-    if (response.stopReason === "error") throw new Error(response.errorMessage ?? "Provider request failed.");
-    return response.content.filter((part) => part.type === "text").map((part) => part.text).join("");
-  }
-
   cancel() { this.agent?.abort(); }
-
   transcript() {
     return (this.agent?.state.messages ?? [])
       .filter((message) => message.role === "user" || message.role === "assistant")
       .map((message) => ({ role: message.role, text: message.content.filter((part) => part.type === "text").map((part) => part.text).join("") }));
   }
+  close() {}
 
-  close() {
-    // Slice 0 has no live agent session. The method establishes the lifecycle boundary.
+  assertProvider(providerId) {
+    if (!providers.has(providerId)) throw new Error(`Unsupported provider: ${providerId}`);
+    if (!this.models) throw new Error("Harness has not been configured.");
+  }
+
+  createAgent() {
+    if (this.providerState() !== "configured") throw new Error("No model provider is configured. Open provider settings to add an API key or sign in.");
+    if (this.agent) return this.agent;
+    const provider = providers.get(this.providerId);
+    const model = this.models.getModel(provider.id, provider.model);
+    if (!model) throw new Error(`Bundled chat model is unavailable: ${provider.model}`);
+    this.agent = new Agent({ initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model }, streamFn: this.models.streamSimple.bind(this.models) });
+    return this.agent;
+  }
+
+  readResponse(agent) {
+    const response = agent.state.messages.at(-1);
+    if (!response || response.role !== "assistant") throw new Error("Harness did not return an assistant response.");
+    if (response.stopReason === "error") throw new Error(response.errorMessage ?? "Provider request failed.");
+    return response.content.filter((part) => part.type === "text").map((part) => part.text).join("");
   }
 }

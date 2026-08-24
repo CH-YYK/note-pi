@@ -52,9 +52,10 @@ export class ObsidianAgentView extends ItemView {
   }
 
   private renderSetupCard() {
+    const provider = this.plugin.selectedProvider();
     const setup = this.contentEl.createDiv({ cls: "agent-setup" });
     setup.createEl("strong", { text: "No model provider is configured." });
-    setup.createDiv({ text: "Add a Gemini API key to send your first chat message." });
+    setup.createDiv({ text: provider.supportsOAuth ? (provider.supportsApiKey ? `Add a ${provider.apiKeyLabel} or sign in to ${provider.label} to send your first chat message.` : `Sign in to ${provider.label} to send your first chat message.`) : `Add a ${provider.apiKeyLabel} to send your first chat message.` });
     const button = setup.createEl("button", { text: "Open provider settings", cls: "mod-cta" });
     button.onclick = () => this.plugin.openSettings();
   }

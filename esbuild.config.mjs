@@ -1,4 +1,20 @@
 import esbuild from "esbuild";
+import { readFile } from "node:fs/promises";
+
+const rendererNodeImportBridge = {
+  name: "renderer-node-import-bridge",
+  setup(build) {
+    build.onLoad({ filter: /node_modules\/@earendil-works\/pi-ai\/dist\/.*\.js$/ }, async (args) => {
+      const source = await readFile(args.path, "utf8");
+      return {
+        contents: source
+          .replace("const dynamicImport = (specifier) => import(__rewriteRelativeImportExtension(specifier));", "const dynamicImport = (specifier) => Promise.resolve(require(specifier));")
+          .replace("const importNodeModule = (specifier) => import(__rewriteRelativeImportExtension(specifier));", "const importNodeModule = (specifier) => Promise.resolve(require(specifier));"),
+        loader: "js"
+      };
+    });
+  }
+};
 
 const shared = {
   bundle: true,
@@ -6,6 +22,7 @@ const shared = {
   target: "node22",
   sourcemap: true,
   external: ["obsidian"],
+  plugins: [rendererNodeImportBridge],
   logLevel: "info"
 };
 
