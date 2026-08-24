@@ -1,6 +1,6 @@
-# note-pi
+# Note Pi
 
-A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by an embedded [Pi](https://github.com/badlogic/pi-mono) agent runtime. It does not require a `pi` binary installed on the host machine.
+A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by bundled [Pi](https://github.com/badlogic/pi-mono) agent libraries. It does not require, launch, or shell out to a `pi` binary installed on the host machine.
 
 ## Current slice
 
@@ -13,9 +13,47 @@ A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by a
 
 ## Architecture
 
-The Obsidian layer is deliberately a view/controller: it renders messages, collects user intent, and persists plugin settings. `EmbeddedHarness` owns Pi model setup, agent/session lifecycle, cancellation, and transcript events.
+The Obsidian layer is deliberately a view/controller. It renders messages, collects user intent, exposes the provider settings, and persists local plugin settings. `EmbeddedHarness` owns Pi model setup, agent/session lifecycle, cancellation, transcript events, and provider transport.
 
 Obsidian's current renderer runtime cannot launch a reliable Node child process or worker thread, so this first slice loads the harness in-process behind a narrow controller interface. This is a structural separation, not a security boundary. A future process-isolated harness remains an optional deployment evolution when the host supports it.
+
+### Pi runtime, not Pi binary
+
+The release bundles the JavaScript libraries `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` into `main.js`. It deliberately does **not** include the full Pi CLI/coding-agent application or a platform-specific `pi` executable.
+
+That means:
+
+- No host-level Pi installation, PATH entry, child process, or binary download is required.
+- The plugin uses Pi's `Agent`, model catalog, provider adapters, credential abstraction, streaming events, and cancellation API directly in the Obsidian Electron process.
+- Pi extensions, interactive CLI commands, terminal UI, and host-level Pi skills are not part of this plugin slice. They require an explicit future integration rather than being inherited automatically from a local Pi installation.
+
+### UI-to-harness flow
+
+```
+Chat pane                     Plugin controller                  Embedded Pi harness
+─────────                     ─────────────────                  ───────────────────
+Choose provider/key  ───────► saveProvider / saveApiKey ───────► configure Pi models + credentials
+Choose model         ───────► saveModel                 ───────► recreate agent with selected Pi model
+Send a message       ───────► submitChat                ───────► Agent.prompt + provider stream
+Assistant deltas     ◄────── subscribe callback         ◄────── Pi message_update events
+Escape / cancel      ───────► cancelChat                ───────► Agent.abort
+```
+
+The chat header contains the model selector. Provider selection and API-key/token storage remain in **Note Pi settings**. Changing the provider or model creates a fresh in-memory agent, so it starts a new chat transcript for subsequent turns. The active note name is displayed as UI context; the current implementation does not send note contents to the model.
+
+### Provider networking
+
+Obsidian's renderer `fetch` is governed by Chromium's network policy and cannot reliably call all model-provider endpoints. The harness therefore sends Pi provider requests through bundled Node networking (`node-fetch`) and adapts the Node response stream to the Web-stream interface Pi expects. API keys remain in local Obsidian plugin data and are passed only to the selected provider request.
+
+## Using the chat
+
+1. Open **Note Pi settings** from the command palette.
+2. Select a provider and save its API key or token.
+3. Run **Open Note Pi** from the command palette.
+4. Choose a model in the chat header.
+5. Send a message. Press `Escape` while a response is streaming to cancel it.
+
+The model menu is scoped to the selected provider's bundled Pi model catalog. Kimi Code and Moonshot AI are separate providers, so their credentials and model lists are not interchangeable.
 
 ## Development
 
@@ -24,7 +62,7 @@ npm install
 npm run verify
 ```
 
-To try it in Obsidian, install or symlink the built `main.js`, `manifest.json`, and `styles.css` into a desktop vault's `.obsidian/plugins/note-pi/` directory, enable the plugin, open **Open Note Pi settings**, choose a provider and model from Pi's catalog, then save its API key or token. Obsidian plugin data is local storage, not OS keychain-backed secret storage.
+To try it in Obsidian, install or symlink the built `main.js`, `manifest.json`, and `styles.css` into a desktop vault's `.obsidian/plugins/note-pi/` directory, enable the plugin, open **Note Pi settings** to save a provider credential, then open the Note Pi chat and select a model. Obsidian plugin data is local storage, not OS keychain-backed secret storage.
 
 Note Pi intentionally supports API keys and tokens only. A Gemini API key can use Google AI Studio free-tier quota when available. Kimi Code (`https://api.kimi.com/coding`) and Moonshot AI (`https://api.moonshot.ai/v1`) are separate Pi providers with separate credentials and model catalogs.
 
