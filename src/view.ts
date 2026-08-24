@@ -34,7 +34,8 @@ export class ObsidianAgentView extends ItemView {
   private renderHeader() {
     const header = this.contentEl.createDiv({ cls: "agent-header" });
     header.createDiv({ cls: "agent-title", text: "Note Pi" });
-    const profile = header.createDiv({ cls: "agent-profile", text: "vault-assistant" });
+    const model = this.plugin.selectedModel();
+    const profile = header.createDiv({ cls: "agent-profile", text: model?.label ?? "vault-assistant" });
     profile.setAttribute("aria-label", "Active harness profile");
   }
 

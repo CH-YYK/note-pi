@@ -17,6 +17,15 @@ export class NotePiSettingsTab extends PluginSettingTab {
       });
 
     const provider = this.plugin.selectedProvider();
+    const models = this.plugin.modelOptions();
+    new Setting(this.containerEl)
+      .setName("Model")
+      .setDesc("Choose the model Note Pi uses for new chat turns.")
+      .addDropdown((dropdown) => {
+        for (const model of models) dropdown.addOption(model.id, model.label);
+        dropdown.setValue(this.plugin.selectedModel()?.id ?? provider.defaultModel).onChange(async (modelId) => this.plugin.saveModel(modelId));
+      });
+
     const status = this.plugin.providerStatus();
     let apiKeyInput: HTMLInputElement;
     new Setting(this.containerEl)

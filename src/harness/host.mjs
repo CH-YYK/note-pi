@@ -8,11 +8,11 @@ import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding"
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 
 export const AUTH_PROVIDERS = [
-  { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", model: "gemini-3.6-flash" },
-  { id: "anthropic", label: "Anthropic", apiKeyLabel: "Anthropic API key", model: "claude-sonnet-4-5" },
-  { id: "github-copilot", label: "GitHub Copilot", apiKeyLabel: "GitHub token", model: "gpt-4.1" },
-  { id: "kimi-coding", label: "Kimi K3", apiKeyLabel: "Kimi API key", model: "k3" },
-  { id: "openrouter", label: "OpenRouter", apiKeyLabel: "OpenRouter API key", model: "openai/gpt-4o-mini" }
+  { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", defaultModel: "gemini-3.6-flash" },
+  { id: "anthropic", label: "Anthropic", apiKeyLabel: "Anthropic API key", defaultModel: "claude-sonnet-4-5" },
+  { id: "github-copilot", label: "GitHub Copilot", apiKeyLabel: "GitHub token", defaultModel: "gpt-4.1" },
+  { id: "kimi-coding", label: "Kimi K3", apiKeyLabel: "Kimi API key", defaultModel: "k3" },
+  { id: "openrouter", label: "OpenRouter", apiKeyLabel: "OpenRouter API key", defaultModel: "openai/gpt-4o-mini" }
 ];
 
 const providers = new Map(AUTH_PROVIDERS.map((provider) => [provider.id, provider]));
@@ -44,17 +44,20 @@ export class PiCredentialStore {
 export class EmbeddedHarness {
   constructor() {
     this.providerId = "google";
+    this.modelId = undefined;
     this.agent = undefined;
     this.models = undefined;
     this.credentialStore = undefined;
   }
 
-  async configure({ providerId = "google", credentials = {}, persistCredentials = async (_credentials) => {} }) {
+  async configure({ providerId = "google", modelId, credentials = {}, persistCredentials = async (_credentials) => {} }) {
     if (!providers.has(providerId)) throw new Error(`Unsupported provider: ${providerId}`);
     this.providerId = providerId;
     this.credentialStore = new PiCredentialStore(credentials, persistCredentials);
     this.models = createModels({ credentials: this.credentialStore });
     for (const factory of providerFactories) this.models.setProvider(factory());
+    const provider = providers.get(providerId);
+    this.modelId = this.models.getModel(providerId, modelId)?.id ?? provider.defaultModel;
     this.agent = undefined;
   }
 
@@ -62,6 +65,11 @@ export class EmbeddedHarness {
     const credential = this.credentialStore?.credentials[providerId];
     if (!credential || credential.type !== "api_key" || !credential.key?.trim()) return "missing";
     return "configured";
+  }
+
+  modelsForProvider(providerId = this.providerId) {
+    this.assertProvider(providerId);
+    return this.models.getModels(providerId).map((model) => ({ id: model.id, label: model.name ?? model.id }));
   }
 
   async loginWithApiKey(providerId, apiKey) {
@@ -116,9 +124,8 @@ export class EmbeddedHarness {
   createAgent() {
     if (this.providerState() !== "configured") throw new Error("No model provider is configured. Open provider settings to add an API key.");
     if (this.agent) return this.agent;
-    const provider = providers.get(this.providerId);
-    const model = this.models.getModel(provider.id, provider.model);
-    if (!model) throw new Error(`Bundled chat model is unavailable: ${provider.model}`);
+    const model = this.models.getModel(this.providerId, this.modelId);
+    if (!model) throw new Error(`Bundled chat model is unavailable: ${this.modelId}`);
     this.agent = new Agent({ initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model }, streamFn: this.models.streamSimple.bind(this.models) });
     return this.agent;
   }

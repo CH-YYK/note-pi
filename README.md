@@ -24,7 +24,7 @@ npm install
 npm run verify
 ```
 
-To try it in Obsidian, install or symlink the built `main.js`, `manifest.json`, and `styles.css` into a desktop vault's `.obsidian/plugins/note-pi/` directory, enable the plugin, open **Open Note Pi settings**, select a provider, then save its API key or token. Obsidian plugin data is local storage, not OS keychain-backed secret storage.
+To try it in Obsidian, install or symlink the built `main.js`, `manifest.json`, and `styles.css` into a desktop vault's `.obsidian/plugins/note-pi/` directory, enable the plugin, open **Open Note Pi settings**, choose a provider and model from Pi's catalog, then save its API key or token. Obsidian plugin data is local storage, not OS keychain-backed secret storage.
 
 Note Pi intentionally supports API keys and tokens only. A Gemini API key can use Google AI Studio free-tier quota when available.
 

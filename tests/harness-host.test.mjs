@@ -45,7 +45,7 @@ test("OAuth-only provider selections are rejected after migration to API-only au
   await assert.rejects(() => harness.configure({ providerId: "openai-codex" }), /Unsupported provider/);
 });
 
-test("every advertised provider has its configured chat model in Pi's catalog", async () => {
+test("every advertised provider exposes its default chat model in Pi's catalog", async () => {
   for (const provider of AUTH_PROVIDERS) {
     assert.ok(provider.apiKeyLabel, `${provider.id} must offer an API-key label`);
     const harness = new EmbeddedHarness();
@@ -53,6 +53,19 @@ test("every advertised provider has its configured chat model in Pi's catalog", 
       providerId: provider.id,
       credentials: { [provider.id]: { type: "api_key", key: "test-key" } }
     });
+    assert.ok(harness.modelsForProvider().some((model) => model.id === provider.defaultModel), provider.id);
     assert.doesNotThrow(() => harness.createAgent(), provider.id);
   }
+});
+
+test("a selected provider model replaces its default when it exists in Pi's catalog", async () => {
+  const harness = new EmbeddedHarness();
+  await harness.configure({
+    providerId: "kimi-coding",
+    modelId: "k3-256k",
+    credentials: { "kimi-coding": { type: "api_key", key: "test-key" } }
+  });
+
+  assert.equal(harness.modelId, "k3-256k");
+  assert.doesNotThrow(() => harness.createAgent());
 });
