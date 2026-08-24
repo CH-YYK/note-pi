@@ -11,7 +11,7 @@ export const AUTH_PROVIDERS = [
   { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", defaultModel: "gemini-3.6-flash" },
   { id: "anthropic", label: "Anthropic", apiKeyLabel: "Anthropic API key", defaultModel: "claude-sonnet-4-5" },
   { id: "github-copilot", label: "GitHub Copilot", apiKeyLabel: "GitHub token", defaultModel: "gpt-4.1" },
-  { id: "kimi-coding", label: "Kimi K3", apiKeyLabel: "Kimi API key", defaultModel: "k3" },
+  { id: "kimi-coding", label: "Moonshot AI", apiKeyLabel: "Moonshot AI API key", defaultModel: "k3" },
   { id: "openrouter", label: "OpenRouter", apiKeyLabel: "OpenRouter API key", defaultModel: "openai/gpt-4o-mini" }
 ];
 

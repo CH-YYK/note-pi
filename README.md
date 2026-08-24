@@ -7,7 +7,7 @@ A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by a
 - Opens an Obsidian chat view from the command palette.
 - Presents the active note as lightweight context, without making the note the agent's source of truth.
 - Streams status and assistant messages into the view.
-- Lets you choose Google Gemini, Anthropic, GitHub Copilot, Kimi K3, or OpenRouter.
+- Lets you choose Google Gemini, Anthropic, GitHub Copilot, Moonshot AI, or OpenRouter.
 - Stores provider API keys and tokens in the plugin's local Obsidian data file.
 - Checks Obsidian's embedded Node version against Pi's Node 22.19 runtime floor.
 
