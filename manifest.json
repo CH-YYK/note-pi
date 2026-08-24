@@ -1,9 +1,9 @@
 {
-  "id": "obsidian-agent",
-  "name": "Obsidian Agent",
+  "id": "note-pi",
+  "name": "Note Pi",
   "version": "0.1.0",
   "minAppVersion": "1.10.0",
-  "description": "A desktop-only Pi harness view for Obsidian.",
+  "description": "A desktop-only Pi agent chat view for your notes.",
   "author": "Kyle",
   "isDesktopOnly": true
 }

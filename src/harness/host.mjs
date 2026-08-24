@@ -46,7 +46,7 @@ export class EmbeddedHarness {
     if (!model) throw new Error(`Bundled chat model is unavailable: ${CHAT_MODEL}`);
     if (!this.agent) {
       this.agent = new Agent({
-        initialState: { systemPrompt: "You are Obsidian Agent. Answer concisely.", model },
+        initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model },
         streamFn: configuredModels.streamSimple.bind(configuredModels)
       });
     }
@@ -76,7 +76,7 @@ export class EmbeddedHarness {
     models.setProvider(googleProvider());
     const model = models.getModel("google", CHAT_MODEL);
     if (!model) throw new Error(`Bundled chat model is unavailable: ${CHAT_MODEL}`);
-    if (!this.agent) this.agent = new Agent({ initialState: { systemPrompt: "You are Obsidian Agent. Answer concisely.", model }, streamFn: models.streamSimple.bind(models) });
+    if (!this.agent) this.agent = new Agent({ initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model }, streamFn: models.streamSimple.bind(models) });
     setUnsubscribe(this.agent.subscribe((event) => {
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") onDelta(event.assistantMessageEvent.delta);
     }));

@@ -2,7 +2,7 @@ import { Plugin, Notice, WorkspaceLeaf } from "obsidian";
 import { checkPiRuntime } from "./plugin/runtime-compatibility";
 import { EmbeddedHarness } from "./harness/host.mjs";
 import { ObsidianAgentSettingsTab } from "./settings";
-import { ObsidianAgentView, VIEW_TYPE_OBSIDIAN_AGENT } from "./view";
+import { ObsidianAgentView, VIEW_TYPE_NOTE_PI } from "./view";
 
 type HarnessEvent = { type: string; requestId: string; node?: string; pid?: number };
 export interface ObsidianAgentSettings { googleApiKey: string; }
@@ -16,14 +16,14 @@ export default class ObsidianAgentPlugin extends Plugin {
   async onload() {
     const runtime = checkPiRuntime(process.versions.node);
     if (!runtime.supported) {
-      new Notice(`Obsidian Agent disabled: ${runtime.message}`);
+      new Notice(`Note Pi disabled: ${runtime.message}`);
       return;
     }
     this.settings = { ...DEFAULT_SETTINGS, ...(await this.loadData()) };
     await this.startHarness().configure(this.settings);
-    this.registerView(VIEW_TYPE_OBSIDIAN_AGENT, (leaf) => new ObsidianAgentView(leaf, this));
+    this.registerView(VIEW_TYPE_NOTE_PI, (leaf) => new ObsidianAgentView(leaf, this));
     this.addSettingTab(new ObsidianAgentSettingsTab(this.app, this));
-    this.addCommand({ id: "open-chat", name: "Open chat", callback: () => this.activateView() });
+    this.addCommand({ id: "open-chat", name: "Open Note Pi", callback: () => this.activateView() });
 
     this.addCommand({
       id: "check-harness",
@@ -44,7 +44,7 @@ export default class ObsidianAgentPlugin extends Plugin {
   }
 
   onunload() {
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE_OBSIDIAN_AGENT);
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_NOTE_PI);
     this.harness?.close();
     this.harness = undefined;
   }
@@ -76,11 +76,11 @@ export default class ObsidianAgentPlugin extends Plugin {
   }
   async activateView() {
     const leaf = this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf("tab");
-    await leaf.setViewState({ type: VIEW_TYPE_OBSIDIAN_AGENT, active: true });
+    await leaf.setViewState({ type: VIEW_TYPE_NOTE_PI, active: true });
     this.app.workspace.revealLeaf(leaf);
   }
   private refreshViews() {
-    this.app.workspace.getLeavesOfType(VIEW_TYPE_OBSIDIAN_AGENT)
+    this.app.workspace.getLeavesOfType(VIEW_TYPE_NOTE_PI)
       .forEach((leaf: WorkspaceLeaf) => (leaf.view as ObsidianAgentView).refreshProviderState());
   }
 

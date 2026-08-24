@@ -8,7 +8,7 @@ export class ObsidianAgentSettingsTab extends PluginSettingTab {
 
   display(): void {
     this.containerEl.empty();
-    this.containerEl.createEl("h2", { text: "Obsidian Agent" });
+    this.containerEl.createEl("h2", { text: "Note Pi" });
     this.containerEl.createEl("p", { text: "Configure the local model provider used by the bundled Pi harness." });
     new Setting(this.containerEl)
       .setName("Gemini API key")

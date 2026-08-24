@@ -1,5 +1,5 @@
 {
-  "name": "obsidian-agent",
+  "name": "note-pi",
   "version": "0.1.0",
   "private": false,
   "description": "Desktop-only Obsidian view backed by an embedded Pi harness runtime",

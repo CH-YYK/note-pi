@@ -1,4 +1,4 @@
-.obsidian-agent-view { display: flex; flex-direction: column; height: 100%; background: var(--background-primary); }
+.note-pi-view { display: flex; flex-direction: column; height: 100%; background: var(--background-primary); }
 .agent-header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--background-modifier-border); }
 .agent-title { font-weight: 650; letter-spacing: -0.01em; }
 .agent-profile { margin-left: auto; color: var(--text-muted); font-size: var(--font-ui-small); }

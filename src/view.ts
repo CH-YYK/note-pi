@@ -1,7 +1,7 @@
 import { ItemView, Notice, WorkspaceLeaf } from "obsidian";
 import type ObsidianAgentPlugin from "./main";
 
-export const VIEW_TYPE_OBSIDIAN_AGENT = "obsidian-agent-view";
+export const VIEW_TYPE_NOTE_PI = "note-pi-view";
 
 export class ObsidianAgentView extends ItemView {
   private transcriptEl!: HTMLElement;
@@ -13,15 +13,15 @@ export class ObsidianAgentView extends ItemView {
     super(leaf);
   }
 
-  getViewType() { return VIEW_TYPE_OBSIDIAN_AGENT; }
-  getDisplayText() { return "Obsidian Agent"; }
+  getViewType() { return VIEW_TYPE_NOTE_PI; }
+  getDisplayText() { return "Note Pi"; }
   getIcon() { return "bot"; }
 
   async onOpen() { this.render(); }
 
   render() {
     this.contentEl.empty();
-    this.contentEl.addClass("obsidian-agent-view");
+    this.contentEl.addClass("note-pi-view");
     this.renderHeader();
     this.transcriptEl = this.contentEl.createDiv({ cls: "agent-transcript" });
     this.renderTranscript();
@@ -33,7 +33,7 @@ export class ObsidianAgentView extends ItemView {
 
   private renderHeader() {
     const header = this.contentEl.createDiv({ cls: "agent-header" });
-    header.createDiv({ cls: "agent-title", text: "Obsidian Agent" });
+    header.createDiv({ cls: "agent-title", text: "Note Pi" });
     const profile = header.createDiv({ cls: "agent-profile", text: "vault-assistant" });
     profile.setAttribute("aria-label", "Active harness profile");
   }
@@ -92,7 +92,7 @@ export class ObsidianAgentView extends ItemView {
     } catch (error) {
       agentMessage.addClass("agent-error");
       agentMessage.setText(error instanceof Error ? error.message : "Chat failed. Fix provider setup and try again.");
-      new Notice("Obsidian Agent could not complete the chat turn.");
+      new Notice("Note Pi could not complete the chat turn.");
     } finally {
       this.isStreaming = false;
       this.composerEl.disabled = false;

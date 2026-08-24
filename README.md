@@ -1,4 +1,4 @@
-# obsidian-agent
+# note-pi
 
 A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by an embedded [Pi](https://github.com/badlogic/pi-mono) agent runtime. It does not require a `pi` binary installed on the host machine.
 
@@ -23,7 +23,7 @@ npm install
 npm run verify
 ```
 
-To try it in Obsidian, install or symlink the built `main.js`, `manifest.json`, and `styles.css` into a desktop vault's `.obsidian/plugins/obsidian-agent/` directory, enable the plugin, open **Open Obsidian Agent**, and add a Gemini API key under **Settings → Obsidian Agent**. Obsidian plugin data is local storage, not OS keychain-backed secret storage.
+To try it in Obsidian, install or symlink the built `main.js`, `manifest.json`, and `styles.css` into a desktop vault's `.obsidian/plugins/note-pi/` directory, enable the plugin, open **Open Note Pi**, and add a Gemini API key under **Settings → Note Pi**. Obsidian plugin data is local storage, not OS keychain-backed secret storage.
 
 ## Release notes
 
