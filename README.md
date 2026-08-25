@@ -14,13 +14,13 @@ A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by b
 
 ## Architecture
 
-Note Pi has three parts. There is no separate product-level “controller” layer: the small TypeScript methods between the UI and harness are just the plugin's wiring.
+Note Pi has three parts. `AgentController` is the product-level application layer: it receives UI intents, owns provider/session/extension policy, and publishes UI-facing snapshots and events. `PiAgentRuntime` is its thin adapter around Pi's core runtime.
 
 | Part | Responsibility | Examples |
 | --- | --- | --- |
 | **Plugin configuration** | Persistent, vault-local configuration that is analogous to setting up Pi before a session. | Provider selection, API key/token storage, disconnecting a provider. |
 | **Chat UI** | The interactive session surface. It sends user input, renders streamed output, and applies session-level harness controls. | Chat messages, cancel, composer model picker, extension slash commands; future `/model` and `/agents`. |
-| **Embedded Pi Harness** | The bundled Pi runtime. It applies the selected configuration, owns the Pi agent and provider request, and streams events back. | Pi model catalog, `Agent`, credentials, provider transport, transcript, cancellation. |
+| **AgentController + Embedded Pi Runtime** | The application layer and bundled Pi integration. The controller applies configuration and session policy; the runtime creates Pi agents, adapts provider streaming, and exposes core tools. | `AgentController`, `PiAgentRuntime`, Pi model catalog, credentials, provider transport, transcript, cancellation. |
 
 Obsidian's current renderer runtime cannot launch a reliable Node child process or worker thread, so this first slice loads the harness in-process behind a narrow UI-to-harness interface. This is a structural separation, not a security boundary. A future process-isolated harness remains an optional deployment evolution when the host supports it.
 
@@ -31,7 +31,7 @@ The release bundles the JavaScript libraries `@earendil-works/pi-agent-core` and
 That means:
 
 - No host-level Pi installation, PATH entry, child process, or binary download is required.
-- The plugin uses Pi's `Agent`, model catalog, provider adapters, credential abstraction, streaming events, and cancellation API directly in the Obsidian Electron process.
+- The controller uses `PiAgentRuntime` to access Pi's `Agent`, model catalog, provider adapters, credential abstraction, streaming events, and cancellation API directly in the Obsidian Electron process.
 - Pi's interactive CLI commands, terminal UI, and host-level Pi resources are not part of this plugin slice. They require an explicit future integration rather than being inherited automatically from a local Pi installation. Vault-local extensions are the exception; see below.
 
 **Pi agent directory:** Plugin settings stores a vault-relative `agentDir`, defaulting to `_pi/agent`; paths outside the vault are rejected. The underscore keeps the folder visible in Obsidian's file explorer. The harness receives the resolved `<vault>/_pi/agent` path and discovers its `extensions/` directory (see below). Skills, prompts, and settings are future resource-loader work.
