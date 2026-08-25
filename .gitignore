@@ -1,5 +1,7 @@
 node_modules/
 main.js
 main.js.map
+mobile.js
+mobile.js.map
 runtime/
 .obsidian-dev-vault/

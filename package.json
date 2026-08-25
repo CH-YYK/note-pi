@@ -9,7 +9,8 @@
     "test": "node --test tests/**/*.test.mjs",
     "spike:surface": "node scripts/measure-pi-surface.mjs",
     "deploy:testing": "npm run build && node scripts/deploy-testing-vault.mjs",
-    "verify": "npm run typecheck && npm run build && npm run test && node scripts/verify-standalone.mjs"
+    "verify:mobile": "node scripts/verify-mobile.mjs",
+    "verify": "npm run typecheck && npm run build && npm run test && node scripts/verify-standalone.mjs && node scripts/verify-mobile.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.2",

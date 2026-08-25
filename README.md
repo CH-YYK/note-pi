@@ -83,6 +83,25 @@ Provider selection and API-key/token storage live in **Note Pi settings**. The c
 
 Obsidian's renderer `fetch` is governed by Chromium's network policy and cannot reliably call all model-provider endpoints. The harness therefore sends Pi provider requests through bundled Node networking (`node-fetch`) and adapts the Node response stream to the Web-stream interface Pi expects. API keys remain in local Obsidian plugin data and are passed only to the selected provider request.
 
+## Mobile (iPad/iPhone) runtime slice
+
+Mobile support is a distinct runtime target, not a manifest toggle on the desktop build. `npm run build` emits a second artifact, `mobile.js`, from `src/mobile/`, with a parallel stack:
+
+```
+Desktop: ObsidianAgentView -> AgentController       -> PiAgentRuntime     -> pi-agent-core Agent
+Mobile:  MobileAgentView  -> MobileAgentController  -> MobileAgentRuntime -> pi-agent-core Agent (validated subset)
+```
+
+The mobile build runs in Obsidian's iOS WebView and is verified to be free of `node:` imports, `node-fetch`, the Node execution environment, and the jiti extension loader (`npm run verify:mobile`). Its boundaries:
+
+- **Provider transport** goes through Obsidian's `requestUrl`, the mobile-safe network path. `requestUrl` buffers responses, so provider output is not token-streamed over the wire, and an in-flight HTTP request cannot be aborted (the local agent loop still cancels immediately).
+- **Vault access** is a single read-only tool implemented on Obsidian's vault APIs. Every agent-supplied path is normalized and traversal/absolute paths are rejected before the vault is touched.
+- **Sessions** persist through Obsidian's plugin data APIs instead of the filesystem, and resume after the view is closed and reopened.
+- **Extensions, slash commands, shell tools, and write tools are excluded.** The first mobile profile is read-only by design.
+- Google Gemini is the only provider wired up so far; others join after their transport is validated on-device.
+
+`manifest.json` keeps `isDesktopOnly: true` until the spike passes on real iPad hardware; `mobile.js` exists so the on-device validation build has a browser-safe artifact to load.
+
 ## Using the chat
 
 1. Open **Note Pi settings** from the command palette.
