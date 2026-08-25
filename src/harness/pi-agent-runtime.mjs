@@ -39,8 +39,13 @@ export class PiAgentRuntime {
     return typeof Agent === "function";
   }
 
-  createAgent(initialState) {
-    if (!this.agent) this.agent = new Agent({ initialState, streamFn: this.streamFn });
+  /**
+   * Create the core Agent. `options` are pi-agent-core AgentOptions (with
+   * initialState, tools, and prompts prepared by the controller); this
+   * adapter only supplies the stream function.
+   */
+  createAgent(options) {
+    if (!this.agent) this.agent = new Agent({ ...options, streamFn: this.streamFn });
     return this.agent;
   }
 

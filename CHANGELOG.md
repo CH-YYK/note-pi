@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0.0] - 2026-08-25
+
+### Added
+
+- Mobile (iPad/iPhone) runtime slice as a distinct build target: `npm run build` now emits a browser-safe `mobile.js` alongside the desktop `main.js`, wiring `MobileAgentView -> MobileAgentController -> MobileAgentRuntime -> pi-agent-core Agent` with no Node APIs, no extensions, and no shell tools.
+- A deterministic fake streaming provider (`src/mobile/fake-provider.mjs`) that speaks Pi's AssistantMessageEventStream protocol, used by the mobile spike and its tests.
+- A mobile vault read tool built on Obsidian's vault APIs with a strict vault-relative path policy that rejects traversal and absolute paths before any read happens.
+- A provider transport adapter over Obsidian's `requestUrl` so mobile provider calls use the mobile-safe network path.
+- Mobile session persistence through Obsidian's plugin data APIs, with resume after the view is closed and reopened; the session record shape matches the desktop store.
+- A compact touch-first mobile chat view (larger tap targets, session history in a touch menu instead of a rail) backed by the same typed harness-client contract as the desktop view.
+- `npm run verify:mobile` asserts the mobile bundle contains no `node:` imports, `node-fetch`, the Node execution environment, or the jiti loader.
+
+### Fixed
+
+- The controller/runtime refactor wrapped `initialState` twice when constructing the Pi `Agent`, so desktop turns ran with a placeholder model, an empty system prompt, and no tools. Both runtimes now pass the controller-prepared options through unchanged, and a regression test asserts the agent receives the configured model, prompt, and tools.
+
 ## [0.2.1.0] - 2026-08-25
 
 ### Changed

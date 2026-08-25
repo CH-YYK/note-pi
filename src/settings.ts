@@ -1,8 +1,28 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
-import type NotePiPlugin from "./main";
+import type { Plugin } from "obsidian";
+
+export interface ProviderInfo { id: string; label: string; apiKeyLabel: string; }
+
+/**
+ * Structural contract the settings tab needs from its host plugin. Both the
+ * desktop NotePiPlugin and the mobile NotePiMobilePlugin satisfy it; the Pi
+ * agent directory section only renders when the host exposes saveAgentDir
+ * (desktop-only capability).
+ */
+export interface ProviderConfigHost {
+  settings: { providerId: string; agentDir?: string };
+  providerOptions(): ProviderInfo[];
+  selectedProvider(): ProviderInfo;
+  providerStatus(): string;
+  saveProvider(providerId: string): Promise<void>;
+  saveApiKey(apiKey: string): Promise<void>;
+  logoutProvider(providerId: string): Promise<void>;
+  defaultAgentDir?(): string;
+  saveAgentDir?(agentDir: string): Promise<void>;
+}
 
 export class NotePiSettingsTab extends PluginSettingTab {
-  constructor(app: App, private readonly plugin: NotePiPlugin) { super(app, plugin); }
+  constructor(app: App, private readonly plugin: Plugin & ProviderConfigHost) { super(app, plugin); }
 
   display(): void {
     this.containerEl.empty();
@@ -18,20 +38,23 @@ export class NotePiSettingsTab extends PluginSettingTab {
 
     const provider = this.plugin.selectedProvider();
 
-    let agentDirInput: HTMLInputElement;
-    new Setting(this.containerEl)
-      .setName("Pi agent directory")
-      .setDesc(`Vault-relative resource root for future Pi skills, extensions, prompts, and settings. Default: ${this.plugin.defaultAgentDir()}`)
-      .addText((text) => {
-        text.setPlaceholder(this.plugin.defaultAgentDir());
-        text.setValue(this.plugin.settings.agentDir);
-        agentDirInput = text.inputEl;
-      })
-      .addButton((button) => button.setButtonText("Save directory").onClick(async () => {
-        await this.plugin.saveAgentDir(agentDirInput.value);
-        new Notice("Pi agent directory saved.");
-        this.display();
-      }));
+    const { defaultAgentDir, saveAgentDir } = this.plugin;
+    if (defaultAgentDir && saveAgentDir) {
+      let agentDirInput: HTMLInputElement;
+      new Setting(this.containerEl)
+        .setName("Pi agent directory")
+        .setDesc(`Vault-relative resource root for future Pi skills, extensions, prompts, and settings. Default: ${defaultAgentDir()}`)
+        .addText((text) => {
+          text.setPlaceholder(defaultAgentDir());
+          text.setValue(this.plugin.settings.agentDir ?? "");
+          agentDirInput = text.inputEl;
+        })
+        .addButton((button) => button.setButtonText("Save directory").onClick(async () => {
+          await saveAgentDir(agentDirInput.value);
+          new Notice("Pi agent directory saved.");
+          this.display();
+        }));
+    }
 
     const status = this.plugin.providerStatus();
     let apiKeyInput: HTMLInputElement;
