@@ -13,9 +13,15 @@ A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by b
 
 ## Architecture
 
-The Obsidian layer is deliberately a view/controller. It renders messages, collects user intent, exposes the provider settings, and persists local plugin settings. `EmbeddedHarness` owns Pi model setup, agent/session lifecycle, cancellation, transcript events, and provider transport.
+Note Pi has three parts. There is no separate product-level “controller” layer: the small TypeScript methods between the UI and harness are just the plugin's wiring.
 
-Obsidian's current renderer runtime cannot launch a reliable Node child process or worker thread, so this first slice loads the harness in-process behind a narrow controller interface. This is a structural separation, not a security boundary. A future process-isolated harness remains an optional deployment evolution when the host supports it.
+| Part | Responsibility | Examples |
+| --- | --- | --- |
+| **Plugin configuration** | Persistent, vault-local configuration that is analogous to setting up Pi before a session. | Provider selection, API key/token storage, disconnecting a provider. |
+| **Chat UI** | The interactive session surface. It sends user input, renders streamed output, and applies session-level harness controls. | Chat messages, cancel, model picker, future slash commands such as `/model` and `/agents`. |
+| **Embedded Pi Harness** | The bundled Pi runtime. It applies the selected configuration, owns the Pi agent and provider request, and streams events back. | Pi model catalog, `Agent`, credentials, provider transport, transcript, cancellation. |
+
+Obsidian's current renderer runtime cannot launch a reliable Node child process or worker thread, so this first slice loads the harness in-process behind a narrow UI-to-harness interface. This is a structural separation, not a security boundary. A future process-isolated harness remains an optional deployment evolution when the host supports it.
 
 ### Pi runtime, not Pi binary
 
@@ -30,16 +36,21 @@ That means:
 ### UI-to-harness flow
 
 ```
-Chat pane                     Plugin controller                  Embedded Pi harness
-─────────                     ─────────────────                  ───────────────────
-Choose provider/key  ───────► saveProvider / saveApiKey ───────► configure Pi models + credentials
-Choose model         ───────► saveModel                 ───────► recreate agent with selected Pi model
-Send a message       ───────► submitChat                ───────► Agent.prompt + provider stream
-Assistant deltas     ◄────── subscribe callback         ◄────── Pi message_update events
-Escape / cancel      ───────► cancelChat                ───────► Agent.abort
+Plugin configuration                 Chat UI                              Embedded Pi Harness
+────────────────────                 ───────                              ───────────────────
+provider + API key ───────► apply persistent configuration ─────────────► configure providers + credentials
+                                      │
+                                      ├─ model picker / future `/model` ─► apply session model
+                                      ├─ future `/agents` ───────────────► apply agent configuration
+                                      ├─ send message ───────────────────► Agent.prompt()
+                                      └─ Escape / cancel ────────────────► Agent.abort()
+                                      ◄────────────────────────────────── Pi streaming events
+                                      render message deltas
 ```
 
-The chat header contains the model selector. Provider selection and API-key/token storage remain in **Note Pi settings**. Changing the provider or model creates a fresh in-memory agent, so it starts a new chat transcript for subsequent turns. The active note name is displayed as UI context; the current implementation does not send note contents to the model.
+Provider selection and API-key/token storage live in **Note Pi settings**. The chat header contains the current model picker, the UI equivalent of a basic `/model` control. Changing the provider or model creates a fresh in-memory agent, so it starts a new chat transcript for subsequent turns.
+
+`/agents` and other Pi-style session controls are part of the intended Chat UI contract but are **not implemented yet**. The active note name is displayed as UI context; the current implementation does not send note contents to the model.
 
 ### Provider networking
 
