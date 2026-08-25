@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { AUTH_PROVIDERS, EmbeddedHarness, nodeBackedFetch } from "../src/harness/host.mjs";
+import { AUTH_PROVIDERS, AgentController, EmbeddedHarness, nodeBackedFetch } from "../src/harness/host.mjs";
 
 test("embedded harness loads Pi without a host Pi executable", async () => {
   const harness = new EmbeddedHarness();
@@ -13,6 +13,12 @@ test("embedded harness loads Pi without a host Pi executable", async () => {
     piAgentCoreLoaded: true,
     piHostInstallationRequired: false
   });
+});
+
+test("AgentController is the application-layer entry point", () => {
+  assert.equal(EmbeddedHarness, AgentController);
+  const controller = new AgentController();
+  assert.equal(controller.runtime.isAvailable(), true);
 });
 
 test("chat fails visibly when no provider credential is available", async () => {

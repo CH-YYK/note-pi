@@ -1,12 +1,6 @@
-import * as piAgentCore from "@earendil-works/pi-agent-core";
-import { Agent } from "@earendil-works/pi-agent-core";
-import { createReadTool, FileError } from "@earendil-works/pi-agent-core";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { createModels } from "@earendil-works/pi-ai";
-import nodeFetch from "node-fetch";
-import { Readable } from "node:stream";
-import { join, relative } from "node:path";
-import { mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
@@ -14,6 +8,9 @@ import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding"
 import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { ExtensionRegistry, loadNotePiExtensions } from "./extensions.mjs";
+import { PiAgentRuntime, nodeBackedFetch } from "./pi-agent-runtime.mjs";
+
+export { nodeBackedFetch } from "./pi-agent-runtime.mjs";
 
 export const AUTH_PROVIDERS = [
   { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", defaultModel: "gemini-3.6-flash" },
@@ -26,25 +23,6 @@ export const AUTH_PROVIDERS = [
 
 const providers = new Map(AUTH_PROVIDERS.map((provider) => [provider.id, provider]));
 const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, kimiCodingProvider, moonshotaiProvider, openrouterProvider];
-
-// Pi's provider SDKs consume Web streams, while node-fetch exposes a Node stream.
-// Adapt the response so the Electron renderer can use Node networking without
-// falling back to its CORS-constrained global fetch implementation.
-export async function nodeBackedFetch(input, init) {
-  const response = await nodeFetch(input, init);
-  return {
-    body: response.body ? Readable.toWeb(response.body) : null,
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-    ok: response.ok,
-    url: response.url,
-    // Providers read error bodies via text()/json(); delegate to node-fetch.
-    text: () => response.text(),
-    json: () => response.json(),
-    arrayBuffer: () => response.arrayBuffer()
-  };
-}
 
 export class PiCredentialStore {
   constructor(credentials = {}, persist = async (_credentials) => {}) {
@@ -69,11 +47,15 @@ export class PiCredentialStore {
   }
 }
 
-export class EmbeddedHarness {
+/**
+ * Application layer. It owns Note Pi's provider/session/extension policy and
+ * translates the Pi runtime into UI-facing snapshots and events.
+ */
+export class AgentController {
   constructor() {
     this.providerId = "google";
     this.modelId = undefined;
-    this.agent = undefined;
+    this.runtime = new PiAgentRuntime((selectedModel, context, options) => this.models.streamSimple(selectedModel, context, { ...options, fetch: nodeBackedFetch }));
     this.models = undefined;
     this.credentialStore = undefined;
     this.listeners = new Set();
@@ -81,6 +63,9 @@ export class EmbeddedHarness {
     this.sessions = [];
     this.activeSessionId = crypto.randomUUID();
   }
+
+  get agent() { return this.runtime.agent; }
+  set agent(agent) { this.runtime.agent = agent; }
 
   async applyPluginConfiguration({ providerId = "google", credentials = {}, vaultPath, agentDir, enabledTools = ["read"], jitiPath }) {
     if (!providers.has(providerId)) throw new Error(`Unsupported provider: ${providerId}`);
@@ -242,7 +227,7 @@ export class EmbeddedHarness {
   }
 
   async health(requestId) {
-    return { type: "harness.health", requestId, node: process.versions.node, piAgentCoreLoaded: typeof piAgentCore.AgentHarness === "function", piHostInstallationRequired: false };
+    return { type: "harness.health", requestId, node: process.versions.node, piAgentCoreLoaded: this.runtime.isAvailable(), piHostInstallationRequired: false };
   }
 
   async chat(text) {
@@ -362,26 +347,15 @@ export class EmbeddedHarness {
     if (this.agent) return this.agent;
     const model = this.models.getModel(this.providerId, this.modelId);
     if (!model) throw new Error(`Bundled chat model is unavailable: ${this.modelId}`);
-    this.agent = new Agent({
+    this.agent = this.runtime.createAgent({
       initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model, messages: messages ?? this.activeSessionMessages(), tools: [...this.nativeTools(), ...this.extensionRegistry.agentTools()] },
-      // Obsidian renderer fetch is subject to Chromium's network policy. Pi must use
-      // a Node-backed fetch so provider requests use the same transport as Node tests.
-      streamFn: (selectedModel, context, options) => this.models.streamSimple(selectedModel, context, { ...options, fetch: nodeBackedFetch })
     });
     return this.agent;
   }
 
   nativeTools() {
     if (!this.enabledTools?.includes("read") || !this.vaultPath) return [];
-    const read = createReadTool();
-    const env = new NodeExecutionEnv({ cwd: this.vaultPath });
-    const root = this.vaultPath;
-    const safeRead = async (path, signal) => {
-      const canonical = await realpath(path);
-      if (relative(root, canonical).startsWith("..")) return { ok: false, error: new FileError("permission_denied", "Read is limited to the vault.", path) };
-      return env.readBinaryFile(path, signal);
-    };
-    const readTool = { ...read, execute: (id, args, signal, update) => read.execute(id, args, signal, update, { env: { cwd: root, absolutePath: env.absolutePath.bind(env), readBinaryFile: safeRead } }) };
+    const readTool = this.runtime.createVaultReadTool(this.vaultPath);
     return [this.extensionRegistry.wrapNativeTool(readTool)];
   }
 
@@ -392,3 +366,6 @@ export class EmbeddedHarness {
     return response.content.filter((part) => part.type === "text").map((part) => part.text).join("");
   }
 }
+
+// Temporary compatibility name for existing consumers and extension tests.
+export const EmbeddedHarness = AgentController;
