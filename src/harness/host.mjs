@@ -164,8 +164,8 @@ export class EmbeddedHarness {
         this.emit({ type: "assistant.delta", delta });
       }
       if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_delta") this.emit({ type: "activity.thinking", delta: event.assistantMessageEvent.delta });
-      if (event.type === "tool_execution_start") this.emit({ type: "activity.tool", activity: { name: event.toolName, status: "running" } });
-      if (event.type === "tool_execution_end") this.emit({ type: "activity.tool", activity: { name: event.toolName, status: event.isError ? "failed" : "completed" } });
+      if (event.type === "tool_execution_start") this.emit({ type: "activity.tool", activity: { name: event.toolName, status: "running", detail: this.toolDetail(event.args) } });
+      if (event.type === "tool_execution_end") this.emit({ type: "activity.tool", activity: { name: event.toolName, status: event.isError ? "failed" : "completed", detail: this.toolDetail(event.args) } });
     });
     try {
       await agent.prompt(text);
@@ -174,6 +174,7 @@ export class EmbeddedHarness {
       return response;
     } finally {
       unsubscribe();
+      this.emit({ type: "session.usage", usage: this.usageTokens() });
     }
   }
 
@@ -198,6 +199,20 @@ export class EmbeddedHarness {
   }
 
   cancel() { this.agent?.abort(); }
+
+  /** A short human-readable target for an activity row, when one exists. */
+  toolDetail(args) {
+    if (!args || typeof args !== "object") return undefined;
+    const candidate = args.path ?? args.note ?? args.command ?? args.file;
+    return typeof candidate === "string" ? candidate : undefined;
+  }
+
+  /** Start a fresh session: drop the agent and its transcript, keep provider config. */
+  newSession() {
+    this.agent = undefined;
+    this.emit({ type: "session.state", snapshot: this.snapshot() });
+  }
+
   subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   emit(event) { for (const listener of this.listeners) listener(event); }
   snapshot() {
@@ -208,9 +223,19 @@ export class EmbeddedHarness {
       modelId: this.modelId,
       models: this.models ? this.modelsForProvider() : [],
       transcript: this.transcript(),
+      usageTokens: this.usageTokens(),
       extensions: extensionSummary.extensions,
       extensionErrors: extensionSummary.errors
     };
+  }
+
+  usageTokens() {
+    const messages = this.agent?.state.messages ?? [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const usage = messages[i].usage;
+      if (usage?.totalTokens) return usage.totalTokens;
+    }
+    return 0;
   }
   async setSessionModel(modelId) {
     this.assertProvider(this.providerId);

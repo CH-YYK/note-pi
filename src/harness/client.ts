@@ -8,10 +8,11 @@ export type HarnessSnapshot = {
   modelId?: string;
   models: HarnessModel[];
   transcript: HarnessMessage[];
+  usageTokens: number;
   extensions: HarnessExtension[];
   extensionErrors: HarnessExtensionError[];
 };
-export type HarnessEvent = { type: "session.state" | "session.model.changed" | "session.extensions" | "assistant.delta" | "activity.thinking" | "activity.tool" | "extension.notify"; snapshot?: HarnessSnapshot; delta?: string; activity?: { name: string; status: string }; notification?: { message: string; level: string } };
+export type HarnessEvent = { type: "session.state" | "session.model.changed" | "session.extensions" | "session.usage" | "assistant.delta" | "activity.thinking" | "activity.tool" | "extension.notify"; snapshot?: HarnessSnapshot; delta?: string; activity?: { name: string; status: string; detail?: string }; notification?: { message: string; level: string }; usage?: number };
 
 export interface HarnessClient {
   snapshot(): HarnessSnapshot;
@@ -19,4 +20,5 @@ export interface HarnessClient {
   setSessionModel(modelId: string): Promise<void>;
   submit(text: string, onDelta?: (delta: string) => void): Promise<string>;
   cancel(): void;
+  newSession(): void;
 }

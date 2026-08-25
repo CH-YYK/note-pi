@@ -144,3 +144,37 @@ test("unregistered slash input falls through to the agent", async () => {
     await assert.rejects(() => harness.submit("/not-a-command hi"), /No model provider/);
   });
 });
+
+test("newSession resets the agent and reports zero usage", async () => {
+  await withTempAgentDir(async (agentDir) => {
+    const harness = new EmbeddedHarness();
+    await harness.applyPluginConfiguration({
+      providerId: "google",
+      credentials: { google: { type: "api_key", key: "test-key" } },
+      vaultPath: agentDir,
+      agentDir,
+      jitiPath: JITI_PATH
+    });
+    const events = [];
+    harness.subscribe((event) => events.push(event.type));
+    harness.createAgent();
+    assert.ok(harness.snapshot().usageTokens >= 0);
+
+    harness.newSession();
+
+    assert.ok(events.includes("session.state"));
+    assert.deepEqual(harness.snapshot().transcript, []);
+    assert.equal(harness.snapshot().usageTokens, 0);
+  });
+});
+
+test("tool activity events carry a human-readable detail when the tool has a target", async () => {
+  await withTempAgentDir(async (agentDir) => {
+    const harness = new EmbeddedHarness();
+    await harness.applyPluginConfiguration({ providerId: "google", vaultPath: agentDir, agentDir, jitiPath: JITI_PATH });
+    assert.equal(harness.toolDetail({ path: "Notes/A.md" }), "Notes/A.md");
+    assert.equal(harness.toolDetail({ note: "B.md" }), "B.md");
+    assert.equal(harness.toolDetail({ unrelated: 1 }), undefined);
+    assert.equal(harness.toolDetail(undefined), undefined);
+  });
+});

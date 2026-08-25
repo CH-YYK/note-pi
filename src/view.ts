@@ -8,6 +8,19 @@ const STREAM_RENDER_INTERVAL_MS = 120;
 
 type RenderedMarkdown = { el: HTMLElement; component?: Component; source: string };
 
+function formatClock(date: Date): string {
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function formatTokens(tokens: number): string {
+  if (tokens < 1000) return `${tokens}`;
+  return `${(tokens / 1000).toFixed(1)}k`;
+}
+
+function formatDuration(ms: number): string {
+  return `${(ms / 1000).toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}s`;
+}
+
 export class ObsidianAgentView extends ItemView {
   private transcriptEl!: HTMLElement;
   private composerEl!: HTMLTextAreaElement;
@@ -16,12 +29,14 @@ export class ObsidianAgentView extends ItemView {
   private isStreaming = false;
   private snapshot: HarnessSnapshot;
   private unsubscribe?: () => void;
-  private activityEl?: HTMLElement;
+  private turnTimelineEl?: HTMLElement;
   private streamBody?: HTMLElement;
   private streamMarkdown = "";
   private streamRender?: RenderedMarkdown;
   private streamRenderTimer?: number;
   private renderedComponents: Component[] = [];
+  private titleMetaEl?: HTMLElement;
+  private titleNameEl?: HTMLElement;
 
   constructor(leaf: WorkspaceLeaf, private readonly harness: HarnessClient, private readonly openSettings: () => void) {
     super(leaf);
@@ -38,9 +53,16 @@ export class ObsidianAgentView extends ItemView {
         this.snapshot = event.snapshot;
         this.render();
       }
-      if (event.type === "activity.thinking" && event.delta) this.addActivity("Thinking", "working");
-      if (event.type === "activity.tool" && event.activity) this.addActivity(event.activity.name, event.activity.status);
+      if (event.type === "activity.thinking" && event.delta) this.addActivity({ key: "thinking", label: "Thinking", status: "working" });
+      if (event.type === "activity.tool" && event.activity) {
+        this.addActivity({ key: `tool:${event.activity.name}`, label: this.activityLabel(event.activity.name, event.activity.detail), status: event.activity.status, detail: event.activity.detail });
+      }
       if (event.type === "extension.notify" && event.notification) new Notice(event.notification.message);
+      if (event.type === "session.usage" && typeof event.usage === "number") {
+        this.snapshot = this.harness.snapshot();
+        this.updateUsageMeta(event.usage);
+        this.titleNameEl?.setText(this.sessionTitle());
+      }
     });
     this.render();
   }
@@ -52,24 +74,59 @@ export class ObsidianAgentView extends ItemView {
 
   render() {
     this.teardownRenderedMarkdown();
+    this.turnTimelineEl = undefined;
     this.contentEl.empty();
     this.contentEl.addClass("note-pi-view");
     this.renderHeader();
     this.transcriptEl = this.contentEl.createDiv({ cls: "agent-transcript" });
     this.transcriptEl.addEventListener("scroll", () => this.updateJumpButton());
-    this.activityEl = this.transcriptEl.createDiv({ cls: "agent-activities", attr: { "aria-live": "polite" } });
     this.renderTranscript();
     if (this.snapshot.providerState === "configured") this.renderComposer();
     else this.renderSetupCard();
+  }
+
+  // --- Header ---------------------------------------------------------------
+
+  private sessionTitle(): string {
+    const first = this.snapshot.transcript.find((message) => message.role === "user" && message.text.trim());
+    if (!first) return "Note Pi";
+    const text = first.text.trim().replace(/\s+/g, " ");
+    return text.length > 60 ? `${text.slice(0, 60)}…` : text;
   }
 
   private renderHeader() {
     const header = this.contentEl.createDiv({ cls: "agent-header" });
     const title = header.createDiv({ cls: "agent-title" });
     title.createSpan({ cls: "agent-title-icon", text: "π" });
-    title.createSpan({ text: "Note Pi" });
-    header.createSpan({ cls: `agent-status agent-status-${this.snapshot.providerState}`, text: this.snapshot.providerState === "configured" ? "ready" : "setup needed" });
+    const titleText = title.createDiv({ cls: "agent-title-text" });
+    this.titleNameEl = titleText.createDiv({ cls: "agent-title-name", text: this.sessionTitle() });
+    this.titleMetaEl = titleText.createDiv({ cls: "agent-title-meta" });
+    this.updateUsageMeta(this.snapshot.usageTokens);
+
     this.renderExtensionChip(header);
+
+    const newSession = header.createEl("button", {
+      cls: "agent-icon-button",
+      attr: { "aria-label": "New session", title: "New session" },
+      text: "+"
+    });
+    newSession.onclick = () => {
+      if (this.isStreaming) {
+        new Notice("Wait for the current response before starting a new session.");
+        return;
+      }
+      this.harness.newSession();
+    };
+  }
+
+  private updateUsageMeta(tokens: number) {
+    if (!this.titleMetaEl) return;
+    this.titleMetaEl.removeClass("agent-title-warning");
+    if (tokens > 0) this.titleMetaEl.setText(`${formatTokens(tokens)} tokens`);
+    else if (this.snapshot.providerState !== "configured") {
+      this.titleMetaEl.setText("setup needed");
+      this.titleMetaEl.addClass("agent-title-warning");
+    } else this.titleMetaEl.setText("");
   }
 
   private renderExtensionChip(header: HTMLElement) {
@@ -88,11 +145,9 @@ export class ObsidianAgentView extends ItemView {
     chip.setAttr("title", lines.join("\n"));
   }
 
+  // --- Transcript -------------------------------------------------------------
+
   private renderTranscript() {
-    const context = this.transcriptEl.createDiv({ cls: "agent-context" });
-    context.createSpan({ cls: "agent-context-dot", text: "●" });
-    context.createSpan({ text: this.app.workspace.getActiveFile()?.basename ?? "No active note" });
-    context.createSpan({ cls: "agent-context-badge", text: "active" });
     const messages = this.snapshot.transcript;
     if (!messages.length) {
       const empty = this.transcriptEl.createDiv({ cls: "agent-empty" });
@@ -128,11 +183,122 @@ export class ObsidianAgentView extends ItemView {
     button.onclick = this.openSettings;
   }
 
+  private addMessage(role: "user" | "assistant", text: string, timestamp?: Date) {
+    if (timestamp) this.transcriptEl.createDiv({ cls: "agent-timestamp", text: formatClock(timestamp) });
+    if (role === "user") {
+      const card = this.transcriptEl.createDiv({ cls: "agent-user-card" });
+      card.createDiv({ cls: "agent-user-text", text });
+      this.turnTimelineEl = undefined;
+      this.scrollTranscriptIfFollowing();
+      return card;
+    }
+    const message = this.transcriptEl.createDiv({ cls: "agent-message agent-message-assistant" });
+    const body = message.createDiv({ cls: "agent-message-body" });
+    if (text) this.renderMarkdownInto(body, text);
+    this.scrollTranscriptIfFollowing();
+    return body;
+  }
+
+  // --- Activity timeline --------------------------------------------------------
+
+  private activityLabel(name: string, detail?: string): string {
+    if (name === "read" && detail) return `Read: ${detail.split("/").pop() ?? detail}`;
+    return `Using tool: ${name}`;
+  }
+
+  private currentTimeline(): HTMLElement {
+    if (!this.turnTimelineEl || !this.turnTimelineEl.isConnected) {
+      this.turnTimelineEl = this.transcriptEl.createDiv({ cls: "agent-timeline", attr: { "aria-live": "polite" } });
+    }
+    return this.turnTimelineEl;
+  }
+
+  private addActivity(activity: { key: string; label: string; status: string; detail?: string }) {
+    const timeline = this.currentTimeline();
+    const working = activity.status === "working" || activity.status === "running";
+    const existing = [...timeline.querySelectorAll<HTMLElement>(".agent-activity")].find((item) => item.dataset.key === activity.key && item.dataset.state === "working");
+
+    if (existing) {
+      if (working) return; // duplicate working event
+      this.finishActivity(existing, activity.status);
+      return;
+    }
+    const item = timeline.createDiv({ cls: `agent-activity agent-activity-${activity.status}` });
+    item.dataset.key = activity.key;
+    item.dataset.state = working ? "working" : activity.status;
+    item.dataset.startedAt = String(Date.now());
+    item.setAttr("role", "button");
+    item.setAttr("tabindex", "0");
+    item.createSpan({ cls: "agent-activity-dot" });
+    item.createSpan({ cls: "agent-activity-label", text: activity.label });
+    item.createSpan({ cls: "agent-activity-duration" });
+    item.createSpan({ cls: "agent-activity-chevron", text: "›" });
+    if (activity.detail) item.dataset.detail = activity.detail;
+    const toggle = () => this.toggleActivityDetail(item);
+    item.addEventListener("click", toggle);
+    item.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggle();
+      }
+    });
+    if (!working) this.finishActivity(item, activity.status);
+    this.scrollTranscriptIfFollowing();
+  }
+
+  private finishActivity(item: HTMLElement, status: string) {
+    item.dataset.state = status === "working" || status === "running" ? "working" : status;
+    if (item.dataset.state === "working") return;
+    const startedAt = Number(item.dataset.startedAt ?? Date.now());
+    const duration = item.querySelector(".agent-activity-duration");
+    if (duration) duration.textContent = formatDuration(Date.now() - startedAt);
+    item.classList.remove("agent-activity-working", "agent-activity-running");
+    item.classList.add(status === "failed" ? "agent-activity-failed" : "agent-activity-completed");
+  }
+
+  private toggleActivityDetail(item: HTMLElement) {
+    const existing = item.querySelector(".agent-activity-detail");
+    if (existing) {
+      existing.remove();
+      item.removeClass("agent-activity-open");
+      return;
+    }
+    const detail = item.dataset.detail;
+    if (!detail) return;
+    item.addClass("agent-activity-open");
+    const detailEl = item.createDiv({ cls: "agent-activity-detail" });
+    if (detail.endsWith(".md")) {
+      const link = detailEl.createSpan({ cls: "agent-activity-link", text: detail });
+      link.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void this.app.workspace.openLinkText(detail, "", false).catch(() => new Notice(`Could not open ${detail}.`));
+      });
+    } else {
+      detailEl.setText(detail);
+    }
+  }
+
+  private completeWorkingActivities() {
+    if (!this.turnTimelineEl) return;
+    for (const item of Array.from(this.turnTimelineEl.querySelectorAll<HTMLElement>(".agent-activity"))) {
+      if (item.dataset.state === "working") this.finishActivity(item, "completed");
+    }
+  }
+
+  // --- Composer ----------------------------------------------------------------
+
   private renderComposer() {
     const composer = this.contentEl.createDiv({ cls: "agent-composer" });
+    const activeNote = this.app.workspace.getActiveFile()?.basename;
+    if (activeNote) {
+      const contextRow = composer.createDiv({ cls: "agent-context-row" });
+      const chip = contextRow.createDiv({ cls: "agent-context-chip" });
+      chip.createSpan({ cls: "agent-context-chip-icon", text: "📄" });
+      chip.createSpan({ text: activeNote });
+    }
     const box = composer.createDiv({ cls: "agent-composer-box" });
     this.composerEl = box.createEl("textarea", {
-      attr: { placeholder: "Ask about this note…", rows: "1", "aria-label": "Message Note Pi" }
+      attr: { placeholder: "Ask anything…", rows: "1", "aria-label": "Message Note Pi" }
     });
     this.composerEl.addEventListener("input", () => this.autoGrowComposer());
     this.composerEl.addEventListener("keydown", (event) => {
@@ -145,7 +311,6 @@ export class ObsidianAgentView extends ItemView {
     });
 
     const bar = box.createDiv({ cls: "agent-composer-bar" });
-    bar.createDiv({ cls: "agent-composer-context", text: "+ current note" });
     this.renderModelPicker(bar);
     bar.createDiv({ cls: "agent-composer-hint", text: "↵ send · ⇧↵ newline · Esc stop" });
     this.sendButton = bar.createEl("button", {
@@ -197,13 +362,18 @@ export class ObsidianAgentView extends ItemView {
     this.sendButton.toggleClass("agent-send-stop", streaming);
   }
 
+  // --- Turn flow -----------------------------------------------------------------
+
   private async submit() {
     const prompt = this.composerEl.value.trim();
     if (!prompt || this.isStreaming) return;
     this.setStreaming(true);
     this.composerEl.value = "";
     this.autoGrowComposer();
-    this.addMessage("user", prompt);
+    this.addMessage("user", prompt, new Date());
+    // Activities for this turn collect into a timeline group that sits
+    // between the user card and the assistant response.
+    this.currentTimeline();
     const body = this.addMessage("assistant", "");
     this.streamBody = body;
     this.streamMarkdown = "";
@@ -218,6 +388,7 @@ export class ObsidianAgentView extends ItemView {
       // without emitting deltas; render the returned text in that case.
       if (!this.streamMarkdown && result) this.streamMarkdown = result;
       this.renderStreamMarkdown(true);
+      this.transcriptEl.createDiv({ cls: "agent-timestamp", text: formatClock(new Date()) });
     } catch (error) {
       this.flushStreamRenderTimer();
       body.removeClass("agent-streaming");
@@ -232,38 +403,6 @@ export class ObsidianAgentView extends ItemView {
       this.setStreaming(false);
       this.composerEl.focus();
     }
-  }
-
-  private completeWorkingActivities() {
-    if (!this.activityEl) return;
-    for (const item of Array.from(this.activityEl.querySelectorAll<HTMLElement>(".agent-activity-working"))) {
-      item.classList.remove("agent-activity-working");
-      item.classList.add("agent-activity-completed");
-      const status = item.querySelector(".agent-activity-status");
-      if (status) status.textContent = "done";
-    }
-  }
-
-  private addMessage(role: "user" | "assistant", text: string) {
-    const message = this.transcriptEl.createDiv({ cls: `agent-message agent-message-${role}` });
-    message.createDiv({ cls: "agent-message-label", text: role === "user" ? "You" : "Agent" });
-    const body = message.createDiv({ cls: "agent-message-body" });
-    if (role === "assistant" && text) this.renderMarkdownInto(body, text);
-    else body.setText(text);
-    this.scrollTranscriptIfFollowing();
-    return body;
-  }
-
-  private addActivity(name: string, status: string) {
-    if (!this.activityEl) return;
-    const latest = this.activityEl.lastElementChild as HTMLElement | null;
-    if (latest?.dataset.activity === name && status === "working") return;
-    const item = this.activityEl.createDiv({ cls: `agent-activity agent-activity-${status}` });
-    item.dataset.activity = name;
-    item.createSpan({ cls: "agent-activity-dot" });
-    item.createSpan({ text: name });
-    item.createSpan({ cls: "agent-activity-status", text: status });
-    this.scrollTranscriptIfFollowing();
   }
 
   // --- Markdown rendering ---------------------------------------------------
@@ -315,12 +454,8 @@ export class ObsidianAgentView extends ItemView {
   }
 
   private scrollTranscriptIfFollowing() {
-    if (this.transcriptAtBottom()) {
-      this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
-      this.updateJumpButton();
-    } else {
-      this.updateJumpButton();
-    }
+    if (this.transcriptAtBottom()) this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+    this.updateJumpButton();
   }
 
   private updateJumpButton() {
