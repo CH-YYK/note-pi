@@ -5,8 +5,8 @@ import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { createModels } from "@earendil-works/pi-ai";
 import nodeFetch from "node-fetch";
 import { Readable } from "node:stream";
-import { relative } from "node:path";
-import { realpath } from "node:fs/promises";
+import { join, relative } from "node:path";
+import { mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
@@ -78,6 +78,8 @@ export class EmbeddedHarness {
     this.credentialStore = undefined;
     this.listeners = new Set();
     this.extensionRegistry = new ExtensionRegistry();
+    this.sessions = [];
+    this.activeSessionId = crypto.randomUUID();
   }
 
   async applyPluginConfiguration({ providerId = "google", credentials = {}, vaultPath, agentDir, enabledTools = ["read"], jitiPath }) {
@@ -94,7 +96,104 @@ export class EmbeddedHarness {
     this.jitiPath = jitiPath;
     this.agent = undefined;
     await this.loadExtensions();
+    await this.loadSessionStore();
     this.emit({ type: "session.state", snapshot: this.snapshot() });
+  }
+
+  // --- Session history ---------------------------------------------------------
+  //
+  // Sessions persist as JSON transcripts under <agentDir>/sessions/. This is
+  // Note Pi's own store, not Pi's JsonlSessionRepo: the chat slice needs
+  // list/resume, and Pi's lane/branch model arrives with the AgentHarness
+  // integration. Messages are stored verbatim so a resumed session recreates
+  // its Agent with full context.
+
+  sessionsDir() {
+    return this.agentDir ? join(this.agentDir, "sessions") : undefined;
+  }
+
+  async loadSessionStore() {
+    this.sessions = [];
+    const dir = this.sessionsDir();
+    if (!dir) return;
+    let files = [];
+    try {
+      files = await readdir(dir);
+    } catch {
+      return;
+    }
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      try {
+        const record = JSON.parse(await readFile(join(dir, file), "utf8"));
+        if (record?.version !== 1 || !Array.isArray(record.messages)) continue;
+        this.sessions.push({
+          id: record.id,
+          title: record.title ?? "Untitled session",
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          modelId: record.modelId,
+          messages: record.messages
+        });
+      } catch {
+        // Corrupted session files are skipped, never fatal.
+      }
+    }
+    this.sessions.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  }
+
+  /** Persist the active session after each completed turn. */
+  async persistActiveSession() {
+    const dir = this.sessionsDir();
+    const messages = this.agent?.state.messages ?? [];
+    if (!dir || messages.length === 0) return;
+    const existing = this.sessions.find((session) => session.id === this.activeSessionId);
+    const firstUser = messages.find((message) => message.role === "user");
+    const firstText = firstUser?.content?.filter((part) => part.type === "text").map((part) => part.text).join(" ") ?? "";
+    const title = (existing?.title ?? firstText.trim().replace(/\s+/g, " ").slice(0, 60)) || "Untitled session";
+    const record = {
+      version: 1,
+      id: this.activeSessionId,
+      title,
+      createdAt: existing?.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
+      modelId: this.modelId,
+      messages
+    };
+    try {
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, `${this.activeSessionId}.json`), JSON.stringify(record));
+      const entry = { id: record.id, title, createdAt: record.createdAt, updatedAt: record.updatedAt, modelId: record.modelId, messages };
+      if (existing) Object.assign(existing, entry);
+      else this.sessions.unshift(entry);
+    } catch {
+      // History persistence is best-effort; chat must keep working without it.
+    }
+  }
+
+  /** Start a fresh session, keeping the current one in history. */
+  async newSession() {
+    await this.persistActiveSession();
+    this.activeSessionId = crypto.randomUUID();
+    this.agent = undefined;
+    this.emit({ type: "session.state", snapshot: this.snapshot() });
+  }
+
+  /** Resume a session from history into a fresh Agent with its transcript. */
+  async resumeSession(id) {
+    if (id === this.activeSessionId) return;
+    const session = this.sessions.find((entry) => entry.id === id);
+    if (!session) throw new Error(`Unknown session: ${id}`);
+    await this.persistActiveSession();
+    this.activeSessionId = id;
+    if (session.modelId && this.models?.getModel(this.providerId, session.modelId)) this.modelId = session.modelId;
+    this.agent = undefined;
+    this.emit({ type: "session.state", snapshot: this.snapshot() });
+  }
+
+  /** Messages of the active session, used when (re)creating the Agent. */
+  activeSessionMessages() {
+    return this.sessions.find((session) => session.id === this.activeSessionId)?.messages ?? [];
   }
 
   async loadExtensions() {
@@ -175,6 +274,7 @@ export class EmbeddedHarness {
     } finally {
       unsubscribe();
       this.emit({ type: "session.usage", usage: this.usageTokens() });
+      await this.persistActiveSession();
     }
   }
 
@@ -207,12 +307,6 @@ export class EmbeddedHarness {
     return typeof candidate === "string" ? candidate : undefined;
   }
 
-  /** Start a fresh session: drop the agent and its transcript, keep provider config. */
-  newSession() {
-    this.agent = undefined;
-    this.emit({ type: "session.state", snapshot: this.snapshot() });
-  }
-
   subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   emit(event) { for (const listener of this.listeners) listener(event); }
   snapshot() {
@@ -224,13 +318,15 @@ export class EmbeddedHarness {
       models: this.models ? this.modelsForProvider() : [],
       transcript: this.transcript(),
       usageTokens: this.usageTokens(),
+      sessions: this.sessions.map((session) => ({ id: session.id, title: session.title, updatedAt: session.updatedAt, messageCount: session.messages.length })),
+      activeSessionId: this.activeSessionId,
       extensions: extensionSummary.extensions,
       extensionErrors: extensionSummary.errors
     };
   }
 
   usageTokens() {
-    const messages = this.agent?.state.messages ?? [];
+    const messages = this.agent?.state.messages ?? this.activeSessionMessages();
     for (let i = messages.length - 1; i >= 0; i--) {
       const usage = messages[i].usage;
       if (usage?.totalTokens) return usage.totalTokens;
@@ -248,7 +344,7 @@ export class EmbeddedHarness {
     this.emit({ type: "session.model.changed", snapshot: this.snapshot() });
   }
   transcript() {
-    return (this.agent?.state.messages ?? [])
+    return (this.agent?.state.messages ?? this.activeSessionMessages())
       .filter((message) => message.role === "user" || message.role === "assistant")
       .map((message) => ({ role: message.role, text: message.content.filter((part) => part.type === "text").map((part) => part.text).join("") }));
   }
@@ -261,13 +357,13 @@ export class EmbeddedHarness {
     if (!this.models) throw new Error("Harness has not been configured.");
   }
 
-  createAgent(messages = []) {
+  createAgent(messages) {
     if (this.providerState() !== "configured") throw new Error("No model provider is configured. Open provider settings to add an API key.");
     if (this.agent) return this.agent;
     const model = this.models.getModel(this.providerId, this.modelId);
     if (!model) throw new Error(`Bundled chat model is unavailable: ${this.modelId}`);
     this.agent = new Agent({
-      initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model, messages, tools: [...this.nativeTools(), ...this.extensionRegistry.agentTools()] },
+      initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model, messages: messages ?? this.activeSessionMessages(), tools: [...this.nativeTools(), ...this.extensionRegistry.agentTools()] },
       // Obsidian renderer fetch is subject to Chromium's network policy. Pi must use
       // a Node-backed fetch so provider requests use the same transport as Node tests.
       streamFn: (selectedModel, context, options) => this.models.streamSimple(selectedModel, context, { ...options, fetch: nodeBackedFetch })

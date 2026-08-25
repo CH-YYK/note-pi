@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -160,7 +160,7 @@ test("newSession resets the agent and reports zero usage", async () => {
     harness.createAgent();
     assert.ok(harness.snapshot().usageTokens >= 0);
 
-    harness.newSession();
+    await harness.newSession();
 
     assert.ok(events.includes("session.state"));
     assert.deepEqual(harness.snapshot().transcript, []);
@@ -176,5 +176,73 @@ test("tool activity events carry a human-readable detail when the tool has a tar
     assert.equal(harness.toolDetail({ note: "B.md" }), "B.md");
     assert.equal(harness.toolDetail({ unrelated: 1 }), undefined);
     assert.equal(harness.toolDetail(undefined), undefined);
+  });
+});
+
+function configuredHarness(agentDir) {
+  const harness = new EmbeddedHarness();
+  return harness.applyPluginConfiguration({
+    providerId: "google",
+    credentials: { google: { type: "api_key", key: "test-key" } },
+    vaultPath: agentDir,
+    agentDir,
+    jitiPath: JITI_PATH
+  }).then(() => harness);
+}
+
+function pushFakeTurn(harness, text) {
+  const agent = harness.createAgent();
+  agent.state.messages.push({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() });
+  agent.state.messages.push({ role: "assistant", content: [{ type: "text", text: "ok" }], timestamp: Date.now(), usage: { totalTokens: 42 } });
+  return agent;
+}
+
+test("newSession archives the active session and starts fresh", async () => {
+  await withTempAgentDir(async (agentDir) => {
+    const harness = await configuredHarness(agentDir);
+    pushFakeTurn(harness, "summarize the design note");
+
+    await harness.newSession();
+
+    const snapshot = harness.snapshot();
+    assert.deepEqual(snapshot.transcript, []);
+    assert.equal(snapshot.sessions.length, 1);
+    assert.equal(snapshot.sessions[0].title, "summarize the design note");
+    assert.notEqual(snapshot.activeSessionId, snapshot.sessions[0].id);
+    const stored = await readdir(join(agentDir, "sessions"));
+    assert.equal(stored.length, 1);
+  });
+});
+
+test("session history survives a harness restart and resumes its transcript", async () => {
+  await withTempAgentDir(async (agentDir) => {
+    const first = await configuredHarness(agentDir);
+    pushFakeTurn(first, "first turn question");
+    await first.newSession();
+
+    // Simulate a plugin reload: a brand-new harness over the same agentDir.
+    const second = await configuredHarness(agentDir);
+    const sessions = second.snapshot().sessions;
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].title, "first turn question");
+
+    await second.resumeSession(sessions[0].id);
+
+    const snapshot = second.snapshot();
+    assert.equal(snapshot.activeSessionId, sessions[0].id);
+    assert.deepEqual(
+      snapshot.transcript.map((message) => message.text),
+      ["first turn question", "ok"]
+    );
+    assert.equal(snapshot.usageTokens, 42);
+  });
+});
+
+test("corrupted session files are skipped without breaking the store", async () => {
+  await withTempAgentDir(async (agentDir) => {
+    await mkdir(join(agentDir, "sessions"), { recursive: true });
+    await writeFile(join(agentDir, "sessions", "broken.json"), "{ not json");
+    const harness = await configuredHarness(agentDir);
+    assert.deepEqual(harness.snapshot().sessions, []);
   });
 });
