@@ -67,17 +67,19 @@ export class EmbeddedHarness {
     this.agent = undefined;
     this.models = undefined;
     this.credentialStore = undefined;
+    this.listeners = new Set();
   }
 
-  async configure({ providerId = "google", modelId, credentials = {}, persistCredentials = async (_credentials) => {} }) {
+  async applyPluginConfiguration({ providerId = "google", credentials = {} }) {
     if (!providers.has(providerId)) throw new Error(`Unsupported provider: ${providerId}`);
     this.providerId = providerId;
-    this.credentialStore = new PiCredentialStore(credentials, persistCredentials);
+    this.credentialStore = new PiCredentialStore(credentials);
     this.models = createModels({ credentials: this.credentialStore });
     for (const factory of providerFactories) this.models.setProvider(factory());
     const provider = providers.get(providerId);
-    this.modelId = this.models.getModel(providerId, modelId)?.id ?? provider.defaultModel;
+    this.modelId = provider.defaultModel;
     this.agent = undefined;
+    this.emit({ type: "session.state", snapshot: this.snapshot() });
   }
 
   providerState(providerId = this.providerId) {
@@ -96,12 +98,16 @@ export class EmbeddedHarness {
     if (!apiKey.trim()) throw new Error("Enter an API key before saving.");
     await this.models.login(providerId, "api_key", { prompt: async () => apiKey.trim(), notify: () => {} });
     this.agent = undefined;
+    this.emit({ type: "session.state", snapshot: this.snapshot() });
+    return { ...this.credentialStore.credentials };
   }
 
   async logout(providerId = this.providerId) {
     this.assertProvider(providerId);
     await this.models.logout(providerId);
     this.agent = undefined;
+    this.emit({ type: "session.state", snapshot: this.snapshot() });
+    return { ...this.credentialStore.credentials };
   }
 
   async health(requestId) {
@@ -117,7 +123,11 @@ export class EmbeddedHarness {
   async submit(text, onDelta) {
     const agent = this.createAgent();
     const unsubscribe = agent.subscribe((event) => {
-      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") onDelta(event.assistantMessageEvent.delta);
+      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+        const delta = event.assistantMessageEvent.delta;
+        onDelta?.(delta);
+        this.emit({ type: "assistant.delta", delta });
+      }
     });
     try {
       await agent.prompt(text);
@@ -128,6 +138,27 @@ export class EmbeddedHarness {
   }
 
   cancel() { this.agent?.abort(); }
+  subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  emit(event) { for (const listener of this.listeners) listener(event); }
+  snapshot() {
+    return {
+      providerId: this.providerId,
+      providerState: this.providerState(),
+      modelId: this.modelId,
+      models: this.models ? this.modelsForProvider() : [],
+      transcript: this.transcript()
+    };
+  }
+  async setSessionModel(modelId) {
+    this.assertProvider(this.providerId);
+    const model = this.models.getModel(this.providerId, modelId);
+    if (!model) throw new Error(`Bundled chat model is unavailable: ${modelId}`);
+    const transcript = this.agent?.state.messages ?? [];
+    this.modelId = model.id;
+    this.agent = undefined;
+    if (transcript.length) this.createAgent(transcript);
+    this.emit({ type: "session.model.changed", snapshot: this.snapshot() });
+  }
   transcript() {
     return (this.agent?.state.messages ?? [])
       .filter((message) => message.role === "user" || message.role === "assistant")
@@ -140,13 +171,13 @@ export class EmbeddedHarness {
     if (!this.models) throw new Error("Harness has not been configured.");
   }
 
-  createAgent() {
+  createAgent(messages = []) {
     if (this.providerState() !== "configured") throw new Error("No model provider is configured. Open provider settings to add an API key.");
     if (this.agent) return this.agent;
     const model = this.models.getModel(this.providerId, this.modelId);
     if (!model) throw new Error(`Bundled chat model is unavailable: ${this.modelId}`);
     this.agent = new Agent({
-      initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model },
+      initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model, messages },
       // Obsidian renderer fetch is subject to Chromium's network policy. Pi must use
       // a Node-backed fetch so provider requests use the same transport as Node tests.
       streamFn: (selectedModel, context, options) => this.models.streamSimple(selectedModel, context, { ...options, fetch: nodeBackedFetch })

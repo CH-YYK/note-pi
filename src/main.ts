@@ -6,8 +6,8 @@ import { ObsidianAgentView, VIEW_TYPE_NOTE_PI } from "./view";
 
 type HarnessEvent = { type: string; requestId: string; node?: string; pid?: number };
 export interface NotePiCredential { type: "api_key"; key?: string; [key: string]: unknown; }
-export interface NotePiSettings { providerId: string; modelId?: string; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
-const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", modelId: "gemini-3.6-flash", credentials: {}, googleApiKey: "" };
+export interface NotePiSettings { providerId: string; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
+const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", credentials: {}, googleApiKey: "" };
 
 export default class NotePiPlugin extends Plugin {
   private harness?: EmbeddedHarness;
@@ -21,8 +21,9 @@ export default class NotePiPlugin extends Plugin {
       return;
     }
     this.settings = this.normalizeSettings(await this.loadData());
+    await this.saveData(this.settings);
     await this.configureHarness();
-    this.registerView(VIEW_TYPE_NOTE_PI, (leaf) => new ObsidianAgentView(leaf, this));
+    this.registerView(VIEW_TYPE_NOTE_PI, (leaf) => new ObsidianAgentView(leaf, this.startHarness(), () => this.openSettings()));
     this.addSettingTab(new NotePiSettingsTab(this.app, this));
     this.addCommand({ id: "open-chat", name: "Open Note Pi", callback: () => this.activateView() });
     this.addCommand({ id: "open-settings", name: "Open Note Pi settings", callback: () => this.openSettings() });
@@ -38,39 +39,24 @@ export default class NotePiPlugin extends Plugin {
     this.harness = undefined;
   }
 
-  isProviderConfigured() { return this.providerStatus() === "configured"; }
-  getTranscript() { return this.startHarness().transcript(); }
-  cancelChat() { this.startHarness().cancel(); }
-  async submitChat(prompt: string, onDelta: (delta: string) => void) { return this.startHarness().submit(prompt, onDelta); }
   providerOptions() { return AUTH_PROVIDERS; }
   selectedProvider() { return AUTH_PROVIDERS.find((provider) => provider.id === this.settings.providerId) ?? AUTH_PROVIDERS[0]; }
-  modelOptions() { return this.startHarness().modelsForProvider(this.settings.providerId); }
-  selectedModel() { return this.modelOptions().find((model) => model.id === this.settings.modelId) ?? this.modelOptions()[0]; }
   providerStatus() { return this.startHarness().providerState(this.settings.providerId); }
 
   async saveProvider(providerId: string) {
     this.settings.providerId = providerId;
-    this.settings.modelId = AUTH_PROVIDERS.find((provider) => provider.id === providerId)?.defaultModel;
     await this.saveData(this.settings);
     await this.configureHarness();
-    this.refreshViews();
-  }
-
-  async saveModel(modelId: string) {
-    this.settings.modelId = modelId;
-    await this.saveData(this.settings);
-    await this.configureHarness();
-    this.refreshViews();
   }
 
   async saveApiKey(apiKey: string) {
-    await this.startHarness().loginWithApiKey(this.settings.providerId, apiKey);
-    this.refreshViews();
+    this.settings.credentials = await this.startHarness().loginWithApiKey(this.settings.providerId, apiKey);
+    await this.saveData(this.settings);
   }
 
   async logoutProvider(providerId: string) {
-    await this.startHarness().logout(providerId);
-    this.refreshViews();
+    this.settings.credentials = await this.startHarness().logout(providerId);
+    await this.saveData(this.settings);
   }
 
   openSettings() {
@@ -96,30 +82,18 @@ export default class NotePiPlugin extends Plugin {
   }
 
   private normalizeSettings(saved: Partial<NotePiSettings> | null): NotePiSettings {
-    const credentials = { ...(saved?.credentials ?? {}) };
-    if (saved?.googleApiKey?.trim() && !credentials.google) credentials.google = { type: "api_key", key: saved.googleApiKey.trim() };
-    const providerId = AUTH_PROVIDERS.some((provider) => provider.id === saved?.providerId) ? saved?.providerId ?? "google" : "google";
-    const defaultModel = AUTH_PROVIDERS.find((provider) => provider.id === providerId)?.defaultModel;
-    const modelId = saved?.modelId ?? defaultModel;
-    return { ...DEFAULT_SETTINGS, ...saved, credentials, providerId, modelId, googleApiKey: "" };
+    const { modelId: _legacyModelId, ...savedConfiguration } = (saved ?? {}) as Partial<NotePiSettings> & { modelId?: string };
+    const credentials = { ...(savedConfiguration.credentials ?? {}) };
+    if (savedConfiguration.googleApiKey?.trim() && !credentials.google) credentials.google = { type: "api_key", key: savedConfiguration.googleApiKey.trim() };
+    const providerId = AUTH_PROVIDERS.some((provider) => provider.id === savedConfiguration.providerId) ? savedConfiguration.providerId ?? "google" : "google";
+    return { ...DEFAULT_SETTINGS, ...savedConfiguration, credentials, providerId, googleApiKey: "" };
   }
 
   private async configureHarness() {
-    await this.startHarness().configure({
+    await this.startHarness().applyPluginConfiguration({
       providerId: this.settings.providerId,
-      modelId: this.settings.modelId,
-      credentials: this.settings.credentials,
-      persistCredentials: async (credentials: Record<string, NotePiCredential>) => {
-        this.settings.credentials = credentials;
-        this.settings.googleApiKey = "";
-        await this.saveData(this.settings);
-      }
+      credentials: this.settings.credentials
     });
-  }
-
-  private refreshViews() {
-    this.app.workspace.getLeavesOfType(VIEW_TYPE_NOTE_PI)
-      .forEach((leaf: WorkspaceLeaf) => (leaf.view as ObsidianAgentView).refreshProviderState());
   }
 
   private async requestHealth(): Promise<HarnessEvent> {

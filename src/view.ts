@@ -1,5 +1,5 @@
 import { ItemView, Notice, WorkspaceLeaf } from "obsidian";
-import type ObsidianAgentPlugin from "./main";
+import type { HarnessClient, HarnessSnapshot } from "./harness/client";
 
 export const VIEW_TYPE_NOTE_PI = "note-pi-view";
 
@@ -8,16 +8,28 @@ export class ObsidianAgentView extends ItemView {
   private composerEl!: HTMLTextAreaElement;
   private sendButton!: HTMLButtonElement;
   private isStreaming = false;
+  private snapshot!: HarnessSnapshot;
+  private unsubscribe?: () => void;
 
-  constructor(leaf: WorkspaceLeaf, private readonly plugin: ObsidianAgentPlugin) {
+  constructor(leaf: WorkspaceLeaf, private readonly harness: HarnessClient, private readonly openSettings: () => void) {
     super(leaf);
+    this.snapshot = harness.snapshot();
   }
 
   getViewType() { return VIEW_TYPE_NOTE_PI; }
   getDisplayText() { return "Note Pi"; }
   getIcon() { return "bot"; }
 
-  async onOpen() { this.render(); }
+  async onOpen() {
+    this.unsubscribe = this.harness.subscribe((event) => {
+      if (event.snapshot) {
+        this.snapshot = event.snapshot;
+        this.render();
+      }
+    });
+    this.render();
+  }
+  async onClose() { this.unsubscribe?.(); }
 
   render() {
     this.contentEl.empty();
@@ -25,11 +37,9 @@ export class ObsidianAgentView extends ItemView {
     this.renderHeader();
     this.transcriptEl = this.contentEl.createDiv({ cls: "agent-transcript" });
     this.renderTranscript();
-    if (this.plugin.isProviderConfigured()) this.renderComposer();
+    if (this.snapshot.providerState === "configured") this.renderComposer();
     else this.renderSetupCard();
   }
-
-  refreshProviderState() { this.render(); }
 
   private renderHeader() {
     const header = this.contentEl.createDiv({ cls: "agent-header" });
@@ -37,18 +47,18 @@ export class ObsidianAgentView extends ItemView {
     const modelPicker = header.createDiv({ cls: "agent-model-picker" });
     modelPicker.createSpan({ cls: "agent-model-label", text: "Model" });
     const select = modelPicker.createEl("select", { cls: "dropdown agent-model-select", attr: { "aria-label": "Chat model" } });
-    for (const model of this.plugin.modelOptions()) select.createEl("option", { value: model.id, text: model.label });
-    select.value = this.plugin.selectedModel()?.id ?? this.plugin.selectedProvider().defaultModel;
+    for (const model of this.snapshot.models) select.createEl("option", { value: model.id, text: model.label });
+    select.value = this.snapshot.modelId ?? "";
     select.onchange = async () => {
       if (this.isStreaming) {
-        select.value = this.plugin.selectedModel()?.id ?? this.plugin.selectedProvider().defaultModel;
+        select.value = this.snapshot.modelId ?? "";
         new Notice("Wait for the current response before changing models.");
         return;
       }
       select.disabled = true;
       try {
-        await this.plugin.saveModel(select.value);
-        new Notice(`Now using ${this.plugin.selectedModel()?.label ?? select.value}.`);
+        await this.harness.setSessionModel(select.value);
+        new Notice(`Now using ${this.harness.snapshot().models.find((model) => model.id === select.value)?.label ?? select.value}.`);
       } catch (error) {
         new Notice(error instanceof Error ? error.message : "Could not change the chat model.");
         select.disabled = false;
@@ -59,9 +69,9 @@ export class ObsidianAgentView extends ItemView {
   private renderTranscript() {
     const context = this.transcriptEl.createDiv({ cls: "agent-context" });
     context.createSpan({ cls: "agent-context-dot", text: "●" });
-    context.createSpan({ text: this.plugin.app.workspace.getActiveFile()?.basename ?? "No active note" });
+    context.createSpan({ text: this.app.workspace.getActiveFile()?.basename ?? "No active note" });
     context.createSpan({ cls: "agent-context-badge", text: "active" });
-    const messages = this.plugin.getTranscript();
+    const messages = this.snapshot.transcript;
     if (!messages.length) {
       this.transcriptEl.createDiv({ cls: "agent-empty", text: "Ask Pi to work with this note." });
       return;
@@ -70,12 +80,11 @@ export class ObsidianAgentView extends ItemView {
   }
 
   private renderSetupCard() {
-    const provider = this.plugin.selectedProvider();
     const setup = this.contentEl.createDiv({ cls: "agent-setup" });
     setup.createEl("strong", { text: "No model provider is configured." });
-    setup.createDiv({ text: `Add a ${provider.apiKeyLabel} to send your first chat message.` });
+    setup.createDiv({ text: "Add an API key or token in Note Pi settings to send your first chat message." });
     const button = setup.createEl("button", { text: "Open provider settings", cls: "mod-cta" });
-    button.onclick = () => this.plugin.openSettings();
+    button.onclick = this.openSettings;
   }
 
   private renderComposer() {
@@ -87,7 +96,7 @@ export class ObsidianAgentView extends ItemView {
         event.preventDefault();
         void this.submit();
       }
-      if (event.key === "Escape" && this.isStreaming) this.plugin.cancelChat();
+      if (event.key === "Escape" && this.isStreaming) this.harness.cancel();
     });
     this.sendButton = composer.createEl("button", { text: "Send", cls: "mod-cta" });
     this.sendButton.onclick = () => void this.submit();
@@ -104,7 +113,7 @@ export class ObsidianAgentView extends ItemView {
     this.addMessage("user", prompt);
     const agentMessage = this.addMessage("assistant", "");
     try {
-      await this.plugin.submitChat(prompt, (delta) => {
+      await this.harness.submit(prompt, (delta) => {
         agentMessage.setText(agentMessage.textContent + delta);
         this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
       });

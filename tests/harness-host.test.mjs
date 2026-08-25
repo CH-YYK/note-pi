@@ -25,32 +25,28 @@ test("chat fails visibly when no provider credential is available", async () => 
   }
 });
 
-test("API-key login persists a provider-scoped Pi credential", async () => {
-  const persisted = [];
+test("API-key login returns a provider-scoped credential for plugin configuration to persist", async () => {
   const harness = new EmbeddedHarness();
-  await harness.configure({
-    providerId: "google",
-    persistCredentials: async (credentials) => persisted.push(credentials)
-  });
+  await harness.applyPluginConfiguration({ providerId: "google" });
 
-  await harness.loginWithApiKey("google", "test-gemini-key");
+  const credentials = await harness.loginWithApiKey("google", "test-gemini-key");
 
   assert.equal(harness.providerState(), "configured");
-  assert.deepEqual(persisted, [{ google: { type: "api_key", key: "test-gemini-key" } }]);
+  assert.deepEqual(credentials, { google: { type: "api_key", key: "test-gemini-key" } });
 });
 
 test("OAuth-only provider selections are rejected after migration to API-only authentication", async () => {
   const harness = new EmbeddedHarness();
-  await harness.configure({ providerId: "google" });
+  await harness.applyPluginConfiguration({ providerId: "google" });
 
-  await assert.rejects(() => harness.configure({ providerId: "openai-codex" }), /Unsupported provider/);
+  await assert.rejects(() => harness.applyPluginConfiguration({ providerId: "openai-codex" }), /Unsupported provider/);
 });
 
 test("every advertised provider exposes its default chat model in Pi's catalog", async () => {
   for (const provider of AUTH_PROVIDERS) {
     assert.ok(provider.apiKeyLabel, `${provider.id} must offer an API-key label`);
     const harness = new EmbeddedHarness();
-    await harness.configure({
+    await harness.applyPluginConfiguration({
       providerId: provider.id,
       credentials: { [provider.id]: { type: "api_key", key: "test-key" } }
     });
@@ -59,13 +55,13 @@ test("every advertised provider exposes its default chat model in Pi's catalog",
   }
 });
 
-test("a selected provider model replaces its default when it exists in Pi's catalog", async () => {
+test("a session model changes without reapplying plugin configuration", async () => {
   const harness = new EmbeddedHarness();
-  await harness.configure({
+  await harness.applyPluginConfiguration({
     providerId: "moonshotai",
-    modelId: "kimi-k3",
     credentials: { moonshotai: { type: "api_key", key: "test-key" } }
   });
+  await harness.setSessionModel("kimi-k3");
 
   assert.equal(harness.modelId, "kimi-k3");
   assert.doesNotThrow(() => harness.createAgent());
@@ -73,7 +69,7 @@ test("a selected provider model replaces its default when it exists in Pi's cata
 
 test("agent requests use Node-backed fetch instead of Obsidian renderer fetch", async () => {
   const harness = new EmbeddedHarness();
-  await harness.configure({
+  await harness.applyPluginConfiguration({
     providerId: "kimi-coding",
     credentials: { "kimi-coding": { type: "api_key", key: "test-key" } }
   });

@@ -48,7 +48,7 @@ provider + API key ───────► apply persistent configuration ─�
                                       render message deltas
 ```
 
-Provider selection and API-key/token storage live in **Note Pi settings**. The chat header contains the current model picker, the UI equivalent of a basic `/model` control. Changing the provider or model creates a fresh in-memory agent, so it starts a new chat transcript for subsequent turns.
+Provider selection and API-key/token storage live in **Note Pi settings**. The chat header contains the current model picker, the UI equivalent of a basic `/model` control. Model choice is session-only: it is held by the harness, preserves the current transcript, and is never written to Obsidian plugin data. Changing the provider reapplies the persistent provider configuration and starts a fresh harness session.
 
 `/agents` and other Pi-style session controls are part of the intended Chat UI contract but are **not implemented yet**. The active note name is displayed as UI context; the current implementation does not send note contents to the model.
 
