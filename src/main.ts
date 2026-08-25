@@ -1,5 +1,5 @@
 import { Plugin, Notice, WorkspaceLeaf } from "obsidian";
-import { isAbsolute, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { checkPiRuntime } from "./plugin/runtime-compatibility";
 import { AUTH_PROVIDERS, EmbeddedHarness } from "./harness/host.mjs";
 import { NotePiSettingsTab } from "./settings";
@@ -60,9 +60,9 @@ export default class NotePiPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
-  defaultAgentDir() { return resolve(this.vaultPath(), ".pi", "agent"); }
+  defaultAgentDir() { return ".pi/agent"; }
   async saveAgentDir(agentDir: string) {
-    this.settings.agentDir = agentDir.trim() ? (isAbsolute(agentDir.trim()) ? resolve(agentDir.trim()) : resolve(this.vaultPath(), agentDir.trim())) : this.defaultAgentDir();
+    this.settings.agentDir = this.normalizeAgentDir(agentDir);
     await this.saveData(this.settings);
     await this.configureHarness();
   }
@@ -94,7 +94,7 @@ export default class NotePiPlugin extends Plugin {
     const credentials = { ...(savedConfiguration.credentials ?? {}) };
     if (savedConfiguration.googleApiKey?.trim() && !credentials.google) credentials.google = { type: "api_key", key: savedConfiguration.googleApiKey.trim() };
     const providerId = AUTH_PROVIDERS.some((provider) => provider.id === savedConfiguration.providerId) ? savedConfiguration.providerId ?? "google" : "google";
-    const agentDir = savedConfiguration.agentDir?.trim() ? savedConfiguration.agentDir : this.defaultAgentDir();
+    const agentDir = this.normalizeAgentDir(savedConfiguration.agentDir ?? "");
     return { ...DEFAULT_SETTINGS, ...savedConfiguration, agentDir, credentials, providerId, googleApiKey: "" };
   }
 
@@ -103,12 +103,18 @@ export default class NotePiPlugin extends Plugin {
       providerId: this.settings.providerId,
       credentials: this.settings.credentials,
       vaultPath: (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath(),
-      agentDir: this.settings.agentDir,
+      agentDir: resolve(this.vaultPath(), this.settings.agentDir),
       enabledTools: ["read"]
     });
   }
 
   private vaultPath() { return (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath(); }
+  private normalizeAgentDir(value: string) {
+    const resolved = resolve(this.vaultPath(), value.trim() || this.defaultAgentDir());
+    const vaultRelative = relative(this.vaultPath(), resolved);
+    if (!vaultRelative || vaultRelative === ".." || vaultRelative.startsWith(`..${"/"}`)) throw new Error("Pi agent directory must be inside this vault.");
+    return vaultRelative.replaceAll("\\", "/");
+  }
 
   private async requestHealth(): Promise<HarnessEvent> {
     return this.startHarness().health(this.nextRequestId());
