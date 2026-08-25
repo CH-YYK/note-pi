@@ -92,7 +92,9 @@ export default class NotePiPlugin extends Plugin {
   private async configureHarness() {
     await this.startHarness().applyPluginConfiguration({
       providerId: this.settings.providerId,
-      credentials: this.settings.credentials
+      credentials: this.settings.credentials,
+      vaultPath: (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath(),
+      enabledTools: ["read"]
     });
   }
 

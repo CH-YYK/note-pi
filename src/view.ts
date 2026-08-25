@@ -10,6 +10,7 @@ export class ObsidianAgentView extends ItemView {
   private isStreaming = false;
   private snapshot!: HarnessSnapshot;
   private unsubscribe?: () => void;
+  private activityEl?: HTMLElement;
 
   constructor(leaf: WorkspaceLeaf, private readonly harness: HarnessClient, private readonly openSettings: () => void) {
     super(leaf);
@@ -26,6 +27,8 @@ export class ObsidianAgentView extends ItemView {
         this.snapshot = event.snapshot;
         this.render();
       }
+      if (event.type === "activity.thinking" && event.delta) this.addActivity("Thinking", "working");
+      if (event.type === "activity.tool" && event.activity) this.addActivity(event.activity.name, event.activity.status);
     });
     this.render();
   }
@@ -36,6 +39,7 @@ export class ObsidianAgentView extends ItemView {
     this.contentEl.addClass("note-pi-view");
     this.renderHeader();
     this.transcriptEl = this.contentEl.createDiv({ cls: "agent-transcript" });
+    this.activityEl = this.transcriptEl.createDiv({ cls: "agent-activities", attr: { "aria-live": "polite" } });
     this.renderTranscript();
     if (this.snapshot.providerState === "configured") this.renderComposer();
     else this.renderSetupCard();
@@ -133,5 +137,13 @@ export class ObsidianAgentView extends ItemView {
     const message = this.transcriptEl.createDiv({ cls: `agent-message agent-message-${role}` });
     message.createDiv({ cls: "agent-message-label", text: role === "user" ? "You" : "Agent" });
     return message.createDiv({ cls: "agent-message-body", text });
+  }
+
+  private addActivity(name: string, status: string) {
+    if (!this.activityEl) return;
+    const latest = this.activityEl.lastElementChild as HTMLElement | null;
+    if (latest?.dataset.activity === name && status === "working") return;
+    const item = this.activityEl.createDiv({ cls: `agent-activity agent-activity-${status}`, text: `${name} · ${status}` });
+    item.dataset.activity = name;
   }
 }

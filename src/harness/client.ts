@@ -7,7 +7,7 @@ export type HarnessSnapshot = {
   models: HarnessModel[];
   transcript: HarnessMessage[];
 };
-export type HarnessEvent = { type: "session.state" | "session.model.changed" | "assistant.delta"; snapshot?: HarnessSnapshot; delta?: string };
+export type HarnessEvent = { type: "session.state" | "session.model.changed" | "assistant.delta" | "activity.thinking" | "activity.tool"; snapshot?: HarnessSnapshot; delta?: string; activity?: { name: string; status: string } };
 
 export interface HarnessClient {
   snapshot(): HarnessSnapshot;

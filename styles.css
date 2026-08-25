@@ -11,6 +11,10 @@
 .agent-context-dot { color: var(--interactive-accent); }
 .agent-context-badge { color: var(--interactive-accent); }
 .agent-empty { max-width: 470px; color: var(--text-muted); line-height: 1.55; }
+.agent-activities { display: flex; flex-direction: column; gap: 5px; max-width: 720px; margin: 0 0 14px 14px; }
+.agent-activity { padding: 5px 8px; border-left: 2px solid var(--interactive-accent); background: var(--background-secondary); color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.agent-activity-completed { border-left-color: var(--text-success); }
+.agent-activity-failed { border-left-color: var(--text-error); color: var(--text-error); }
 .agent-message { position: relative; max-width: 720px; margin: 0 0 22px; padding-left: 14px; }
 .agent-message::before { content: ""; position: absolute; left: -16px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--background-modifier-border); }
 .agent-message-assistant::before { background: var(--interactive-accent); }
