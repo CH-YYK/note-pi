@@ -60,7 +60,7 @@ export default class NotePiPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
-  defaultAgentDir() { return ".pi/agent"; }
+  defaultAgentDir() { return "_pi/agent"; }
   async saveAgentDir(agentDir: string) {
     this.settings.agentDir = this.normalizeAgentDir(agentDir);
     await this.saveData(this.settings);
@@ -94,7 +94,7 @@ export default class NotePiPlugin extends Plugin {
     const credentials = { ...(savedConfiguration.credentials ?? {}) };
     if (savedConfiguration.googleApiKey?.trim() && !credentials.google) credentials.google = { type: "api_key", key: savedConfiguration.googleApiKey.trim() };
     const providerId = AUTH_PROVIDERS.some((provider) => provider.id === savedConfiguration.providerId) ? savedConfiguration.providerId ?? "google" : "google";
-    const agentDir = this.normalizeAgentDir(savedConfiguration.agentDir ?? "");
+    const agentDir = this.normalizeAgentDir(savedConfiguration.agentDir === ".pi/agent" ? "" : savedConfiguration.agentDir ?? "");
     return { ...DEFAULT_SETTINGS, ...savedConfiguration, agentDir, credentials, providerId, googleApiKey: "" };
   }
 
