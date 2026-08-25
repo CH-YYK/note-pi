@@ -5,14 +5,15 @@ import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { createModels } from "@earendil-works/pi-ai";
 import nodeFetch from "node-fetch";
 import { Readable } from "node:stream";
-import { relative } from "node:path";
-import { realpath } from "node:fs/promises";
+import { join, relative } from "node:path";
+import { mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
 import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
+import { ExtensionRegistry, loadNotePiExtensions } from "./extensions.mjs";
 
 export const AUTH_PROVIDERS = [
   { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", defaultModel: "gemini-3.6-flash" },
@@ -37,7 +38,11 @@ export async function nodeBackedFetch(input, init) {
     statusText: response.statusText,
     headers: response.headers,
     ok: response.ok,
-    url: response.url
+    url: response.url,
+    // Providers read error bodies via text()/json(); delegate to node-fetch.
+    text: () => response.text(),
+    json: () => response.json(),
+    arrayBuffer: () => response.arrayBuffer()
   };
 }
 
@@ -72,9 +77,12 @@ export class EmbeddedHarness {
     this.models = undefined;
     this.credentialStore = undefined;
     this.listeners = new Set();
+    this.extensionRegistry = new ExtensionRegistry();
+    this.sessions = [];
+    this.activeSessionId = crypto.randomUUID();
   }
 
-  async applyPluginConfiguration({ providerId = "google", credentials = {}, vaultPath, agentDir, enabledTools = ["read"] }) {
+  async applyPluginConfiguration({ providerId = "google", credentials = {}, vaultPath, agentDir, enabledTools = ["read"], jitiPath }) {
     if (!providers.has(providerId)) throw new Error(`Unsupported provider: ${providerId}`);
     this.providerId = providerId;
     this.credentialStore = new PiCredentialStore(credentials);
@@ -85,8 +93,124 @@ export class EmbeddedHarness {
     this.vaultPath = vaultPath;
     this.agentDir = agentDir;
     this.enabledTools = enabledTools;
+    this.jitiPath = jitiPath;
+    this.agent = undefined;
+    await this.loadExtensions();
+    await this.loadSessionStore();
+    this.emit({ type: "session.state", snapshot: this.snapshot() });
+  }
+
+  // --- Session history ---------------------------------------------------------
+  //
+  // Sessions persist as JSON transcripts under <agentDir>/sessions/. This is
+  // Note Pi's own store, not Pi's JsonlSessionRepo: the chat slice needs
+  // list/resume, and Pi's lane/branch model arrives with the AgentHarness
+  // integration. Messages are stored verbatim so a resumed session recreates
+  // its Agent with full context.
+
+  sessionsDir() {
+    return this.agentDir ? join(this.agentDir, "sessions") : undefined;
+  }
+
+  async loadSessionStore() {
+    this.sessions = [];
+    const dir = this.sessionsDir();
+    if (!dir) return;
+    let files = [];
+    try {
+      files = await readdir(dir);
+    } catch {
+      return;
+    }
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      try {
+        const record = JSON.parse(await readFile(join(dir, file), "utf8"));
+        if (record?.version !== 1 || !Array.isArray(record.messages)) continue;
+        this.sessions.push({
+          id: record.id,
+          title: record.title ?? "Untitled session",
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          modelId: record.modelId,
+          messages: record.messages
+        });
+      } catch {
+        // Corrupted session files are skipped, never fatal.
+      }
+    }
+    this.sessions.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  }
+
+  /** Persist the active session after each completed turn. */
+  async persistActiveSession() {
+    const dir = this.sessionsDir();
+    const messages = this.agent?.state.messages ?? [];
+    if (!dir || messages.length === 0) return;
+    const existing = this.sessions.find((session) => session.id === this.activeSessionId);
+    const firstUser = messages.find((message) => message.role === "user");
+    const firstText = firstUser?.content?.filter((part) => part.type === "text").map((part) => part.text).join(" ") ?? "";
+    const title = (existing?.title ?? firstText.trim().replace(/\s+/g, " ").slice(0, 60)) || "Untitled session";
+    const record = {
+      version: 1,
+      id: this.activeSessionId,
+      title,
+      createdAt: existing?.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
+      modelId: this.modelId,
+      messages
+    };
+    try {
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, `${this.activeSessionId}.json`), JSON.stringify(record));
+      const entry = { id: record.id, title, createdAt: record.createdAt, updatedAt: record.updatedAt, modelId: record.modelId, messages };
+      if (existing) Object.assign(existing, entry);
+      else this.sessions.unshift(entry);
+    } catch {
+      // History persistence is best-effort; chat must keep working without it.
+    }
+  }
+
+  /** Start a fresh session, keeping the current one in history. */
+  async newSession() {
+    await this.persistActiveSession();
+    this.activeSessionId = crypto.randomUUID();
     this.agent = undefined;
     this.emit({ type: "session.state", snapshot: this.snapshot() });
+  }
+
+  /** Resume a session from history into a fresh Agent with its transcript. */
+  async resumeSession(id) {
+    if (id === this.activeSessionId) return;
+    const session = this.sessions.find((entry) => entry.id === id);
+    if (!session) throw new Error(`Unknown session: ${id}`);
+    await this.persistActiveSession();
+    this.activeSessionId = id;
+    if (session.modelId && this.models?.getModel(this.providerId, session.modelId)) this.modelId = session.modelId;
+    this.agent = undefined;
+    this.emit({ type: "session.state", snapshot: this.snapshot() });
+  }
+
+  /** Messages of the active session, used when (re)creating the Agent. */
+  activeSessionMessages() {
+    return this.sessions.find((session) => session.id === this.activeSessionId)?.messages ?? [];
+  }
+
+  async loadExtensions() {
+    this.extensionRegistry = this.agentDir
+      ? await loadNotePiExtensions(this.agentDir, {
+          vaultPath: this.vaultPath,
+          notify: (message, type) => this.emit({ type: "extension.notify", notification: { message, level: type } }),
+          onToolRegistered: (definition) => {
+            if (!this.agent) return;
+            this.agent.tools = [...this.agent.tools, this.extensionRegistry.wrapTool(definition)];
+          }
+        }, this.jitiPath)
+      : new ExtensionRegistry();
+    if (!this.extensionRegistry.isEmpty()) {
+      this.emit({ type: "session.extensions", snapshot: this.snapshot() });
+      await this.extensionRegistry.emit({ type: "session_start", cwd: this.vaultPath });
+    }
   }
 
   providerState(providerId = this.providerId) {
@@ -128,7 +252,10 @@ export class EmbeddedHarness {
   }
 
   async submit(text, onDelta) {
+    const commandResult = await this.tryRunCommand(text);
+    if (commandResult !== undefined) return commandResult;
     const agent = this.createAgent();
+    await this.extensionRegistry.emit({ type: "turn_start" });
     const unsubscribe = agent.subscribe((event) => {
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
         const delta = event.assistantMessageEvent.delta;
@@ -136,28 +263,75 @@ export class EmbeddedHarness {
         this.emit({ type: "assistant.delta", delta });
       }
       if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_delta") this.emit({ type: "activity.thinking", delta: event.assistantMessageEvent.delta });
-      if (event.type === "tool_execution_start") this.emit({ type: "activity.tool", activity: { name: event.toolName, status: "running" } });
-      if (event.type === "tool_execution_end") this.emit({ type: "activity.tool", activity: { name: event.toolName, status: event.isError ? "failed" : "completed" } });
+      if (event.type === "tool_execution_start") this.emit({ type: "activity.tool", activity: { name: event.toolName, status: "running", detail: this.toolDetail(event.args) } });
+      if (event.type === "tool_execution_end") this.emit({ type: "activity.tool", activity: { name: event.toolName, status: event.isError ? "failed" : "completed", detail: this.toolDetail(event.args) } });
     });
     try {
       await agent.prompt(text);
-      return this.readResponse(agent);
+      const response = this.readResponse(agent);
+      await this.extensionRegistry.emit({ type: "turn_end", message: agent.state.messages.at(-1) });
+      return response;
     } finally {
       unsubscribe();
+      this.emit({ type: "session.usage", usage: this.usageTokens() });
+      await this.persistActiveSession();
+    }
+  }
+
+  /**
+   * Route "/name args" input to an extension-registered command. Returns
+   * undefined when the input is not a registered command.
+   */
+  async tryRunCommand(text) {
+    const match = /^\/([\w-]+)\s*([\s\S]*)$/.exec(text.trim());
+    if (!match) return undefined;
+    const [, name, args] = match;
+    if (!this.extensionRegistry.commands().has(name)) return undefined;
+    this.emit({ type: "activity.tool", activity: { name: `/${name}`, status: "running" } });
+    try {
+      const result = await this.extensionRegistry.runCommand(name, args);
+      this.emit({ type: "activity.tool", activity: { name: `/${name}`, status: "completed" } });
+      return result;
+    } catch (error) {
+      this.emit({ type: "activity.tool", activity: { name: `/${name}`, status: "failed" } });
+      throw error;
     }
   }
 
   cancel() { this.agent?.abort(); }
+
+  /** A short human-readable target for an activity row, when one exists. */
+  toolDetail(args) {
+    if (!args || typeof args !== "object") return undefined;
+    const candidate = args.path ?? args.note ?? args.command ?? args.file;
+    return typeof candidate === "string" ? candidate : undefined;
+  }
+
   subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   emit(event) { for (const listener of this.listeners) listener(event); }
   snapshot() {
+    const extensionSummary = this.extensionRegistry.summary();
     return {
       providerId: this.providerId,
       providerState: this.providerState(),
       modelId: this.modelId,
       models: this.models ? this.modelsForProvider() : [],
-      transcript: this.transcript()
+      transcript: this.transcript(),
+      usageTokens: this.usageTokens(),
+      sessions: this.sessions.map((session) => ({ id: session.id, title: session.title, updatedAt: session.updatedAt, messageCount: session.messages.length })),
+      activeSessionId: this.activeSessionId,
+      extensions: extensionSummary.extensions,
+      extensionErrors: extensionSummary.errors
     };
+  }
+
+  usageTokens() {
+    const messages = this.agent?.state.messages ?? this.activeSessionMessages();
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const usage = messages[i].usage;
+      if (usage?.totalTokens) return usage.totalTokens;
+    }
+    return 0;
   }
   async setSessionModel(modelId) {
     this.assertProvider(this.providerId);
@@ -170,24 +344,26 @@ export class EmbeddedHarness {
     this.emit({ type: "session.model.changed", snapshot: this.snapshot() });
   }
   transcript() {
-    return (this.agent?.state.messages ?? [])
+    return (this.agent?.state.messages ?? this.activeSessionMessages())
       .filter((message) => message.role === "user" || message.role === "assistant")
       .map((message) => ({ role: message.role, text: message.content.filter((part) => part.type === "text").map((part) => part.text).join("") }));
   }
-  close() {}
+  close() {
+    void this.extensionRegistry.emit({ type: "session_shutdown" });
+  }
 
   assertProvider(providerId) {
     if (!providers.has(providerId)) throw new Error(`Unsupported provider: ${providerId}`);
     if (!this.models) throw new Error("Harness has not been configured.");
   }
 
-  createAgent(messages = []) {
+  createAgent(messages) {
     if (this.providerState() !== "configured") throw new Error("No model provider is configured. Open provider settings to add an API key.");
     if (this.agent) return this.agent;
     const model = this.models.getModel(this.providerId, this.modelId);
     if (!model) throw new Error(`Bundled chat model is unavailable: ${this.modelId}`);
     this.agent = new Agent({
-      initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model, messages, tools: this.nativeTools() },
+      initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model, messages: messages ?? this.activeSessionMessages(), tools: [...this.nativeTools(), ...this.extensionRegistry.agentTools()] },
       // Obsidian renderer fetch is subject to Chromium's network policy. Pi must use
       // a Node-backed fetch so provider requests use the same transport as Node tests.
       streamFn: (selectedModel, context, options) => this.models.streamSimple(selectedModel, context, { ...options, fetch: nodeBackedFetch })
@@ -205,7 +381,8 @@ export class EmbeddedHarness {
       if (relative(root, canonical).startsWith("..")) return { ok: false, error: new FileError("permission_denied", "Read is limited to the vault.", path) };
       return env.readBinaryFile(path, signal);
     };
-    return [{ ...read, execute: (id, args, signal, update) => read.execute(id, args, signal, update, { env: { cwd: root, absolutePath: env.absolutePath.bind(env), readBinaryFile: safeRead } }) }];
+    const readTool = { ...read, execute: (id, args, signal, update) => read.execute(id, args, signal, update, { env: { cwd: root, absolutePath: env.absolutePath.bind(env), readBinaryFile: safeRead } }) };
+    return [this.extensionRegistry.wrapNativeTool(readTool)];
   }
 
   readResponse(agent) {

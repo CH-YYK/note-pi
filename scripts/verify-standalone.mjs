@@ -5,6 +5,7 @@ import { EmbeddedHarness } from "../src/harness/host.mjs";
 for (const required of ["main.js", "manifest.json"]) {
   assert.ok(existsSync(required), `Missing built artifact: ${required}`);
 }
+assert.ok(existsSync("runtime/jiti/lib/jiti.cjs"), "Missing vendored jiti runtime required for extension loading.");
 
 const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
 assert.equal(manifest.isDesktopOnly, true, "The embedded Node runtime requires a desktop-only plugin.");
