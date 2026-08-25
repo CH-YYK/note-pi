@@ -74,7 +74,7 @@ export class EmbeddedHarness {
     this.listeners = new Set();
   }
 
-  async applyPluginConfiguration({ providerId = "google", credentials = {}, vaultPath, enabledTools = ["read"] }) {
+  async applyPluginConfiguration({ providerId = "google", credentials = {}, vaultPath, agentDir, enabledTools = ["read"] }) {
     if (!providers.has(providerId)) throw new Error(`Unsupported provider: ${providerId}`);
     this.providerId = providerId;
     this.credentialStore = new PiCredentialStore(credentials);
@@ -83,6 +83,7 @@ export class EmbeddedHarness {
     const provider = providers.get(providerId);
     this.modelId = provider.defaultModel;
     this.vaultPath = vaultPath;
+    this.agentDir = agentDir;
     this.enabledTools = enabledTools;
     this.agent = undefined;
     this.emit({ type: "session.state", snapshot: this.snapshot() });

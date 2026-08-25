@@ -33,6 +33,8 @@ That means:
 - The plugin uses Pi's `Agent`, model catalog, provider adapters, credential abstraction, streaming events, and cancellation API directly in the Obsidian Electron process.
 - Pi extensions, interactive CLI commands, terminal UI, and host-level Pi skills are not part of this plugin slice. They require an explicit future integration rather than being inherited automatically from a local Pi installation.
 
+**Pi agent directory:** Plugin settings stores an `agentDir`, defaulting to `<vault>/.pi/agent`. The harness receives the resolved path so the upcoming lightweight resource loader can discover its `skills/`, `extensions/`, prompts, and settings. The current minimal Pi runtime does not yet load those resources; this setting establishes the stable configuration contract without pretending they are active.
+
 ### UI-to-harness flow
 
 ```

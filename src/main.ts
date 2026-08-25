@@ -1,4 +1,5 @@
 import { Plugin, Notice, WorkspaceLeaf } from "obsidian";
+import { isAbsolute, resolve } from "node:path";
 import { checkPiRuntime } from "./plugin/runtime-compatibility";
 import { AUTH_PROVIDERS, EmbeddedHarness } from "./harness/host.mjs";
 import { NotePiSettingsTab } from "./settings";
@@ -6,8 +7,8 @@ import { ObsidianAgentView, VIEW_TYPE_NOTE_PI } from "./view";
 
 type HarnessEvent = { type: string; requestId: string; node?: string; pid?: number };
 export interface NotePiCredential { type: "api_key"; key?: string; [key: string]: unknown; }
-export interface NotePiSettings { providerId: string; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
-const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", credentials: {}, googleApiKey: "" };
+export interface NotePiSettings { providerId: string; agentDir: string; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
+const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", agentDir: "", credentials: {}, googleApiKey: "" };
 
 export default class NotePiPlugin extends Plugin {
   private harness?: EmbeddedHarness;
@@ -59,6 +60,13 @@ export default class NotePiPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
+  defaultAgentDir() { return resolve(this.vaultPath(), ".pi", "agent"); }
+  async saveAgentDir(agentDir: string) {
+    this.settings.agentDir = agentDir.trim() ? (isAbsolute(agentDir.trim()) ? resolve(agentDir.trim()) : resolve(this.vaultPath(), agentDir.trim())) : this.defaultAgentDir();
+    await this.saveData(this.settings);
+    await this.configureHarness();
+  }
+
   openSettings() {
     const settings = (this.app as unknown as { setting: { open(): void; openTabById(id: string): void } }).setting;
     settings.open();
@@ -86,7 +94,8 @@ export default class NotePiPlugin extends Plugin {
     const credentials = { ...(savedConfiguration.credentials ?? {}) };
     if (savedConfiguration.googleApiKey?.trim() && !credentials.google) credentials.google = { type: "api_key", key: savedConfiguration.googleApiKey.trim() };
     const providerId = AUTH_PROVIDERS.some((provider) => provider.id === savedConfiguration.providerId) ? savedConfiguration.providerId ?? "google" : "google";
-    return { ...DEFAULT_SETTINGS, ...savedConfiguration, credentials, providerId, googleApiKey: "" };
+    const agentDir = savedConfiguration.agentDir?.trim() ? savedConfiguration.agentDir : this.defaultAgentDir();
+    return { ...DEFAULT_SETTINGS, ...savedConfiguration, agentDir, credentials, providerId, googleApiKey: "" };
   }
 
   private async configureHarness() {
@@ -94,9 +103,12 @@ export default class NotePiPlugin extends Plugin {
       providerId: this.settings.providerId,
       credentials: this.settings.credentials,
       vaultPath: (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath(),
+      agentDir: this.settings.agentDir,
       enabledTools: ["read"]
     });
   }
+
+  private vaultPath() { return (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath(); }
 
   private async requestHealth(): Promise<HarnessEvent> {
     return this.startHarness().health(this.nextRequestId());

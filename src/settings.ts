@@ -18,6 +18,21 @@ export class NotePiSettingsTab extends PluginSettingTab {
 
     const provider = this.plugin.selectedProvider();
 
+    let agentDirInput: HTMLInputElement;
+    new Setting(this.containerEl)
+      .setName("Pi agent directory")
+      .setDesc(`Resource root for future Pi skills, extensions, prompts, and settings. Default: ${this.plugin.defaultAgentDir()}`)
+      .addText((text) => {
+        text.setPlaceholder(this.plugin.defaultAgentDir());
+        text.setValue(this.plugin.settings.agentDir);
+        agentDirInput = text.inputEl;
+      })
+      .addButton((button) => button.setButtonText("Save directory").onClick(async () => {
+        await this.plugin.saveAgentDir(agentDirInput.value);
+        new Notice("Pi agent directory saved.");
+        this.display();
+      }));
+
     const status = this.plugin.providerStatus();
     let apiKeyInput: HTMLInputElement;
     new Setting(this.containerEl)
