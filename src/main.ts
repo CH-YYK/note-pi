@@ -104,7 +104,8 @@ export default class NotePiPlugin extends Plugin {
       credentials: this.settings.credentials,
       vaultPath: (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath(),
       agentDir: resolve(this.vaultPath(), this.settings.agentDir),
-      enabledTools: ["read"]
+      enabledTools: ["read"],
+      jitiPath: resolve(this.vaultPath(), this.manifest.dir ?? "", "runtime/jiti/lib/jiti.cjs")
     });
   }
 

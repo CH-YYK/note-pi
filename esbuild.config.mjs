@@ -1,5 +1,5 @@
 import esbuild from "esbuild";
-import { readFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm } from "node:fs/promises";
 
 const rendererNodeImportBridge = {
   name: "renderer-node-import-bridge",
@@ -33,3 +33,12 @@ await esbuild.build({
   format: "cjs",
   outfile: "main.js"
 });
+
+// jiti cannot be bundled (it lazy-requires its babel transform relative to
+// its own module URL), so ship it as vendored runtime files instead.
+await rm("runtime/jiti", { recursive: true, force: true });
+await mkdir("runtime/jiti", { recursive: true });
+for (const entry of ["dist", "lib", "package.json"]) {
+  await cp(`node_modules/jiti/${entry}`, `runtime/jiti/${entry}`, { recursive: true });
+}
+console.log("runtime/jiti vendored");

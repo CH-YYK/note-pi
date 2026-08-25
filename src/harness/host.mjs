@@ -13,6 +13,7 @@ import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
 import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
+import { ExtensionRegistry, loadNotePiExtensions } from "./extensions.mjs";
 
 export const AUTH_PROVIDERS = [
   { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", defaultModel: "gemini-3.6-flash" },
@@ -37,7 +38,11 @@ export async function nodeBackedFetch(input, init) {
     statusText: response.statusText,
     headers: response.headers,
     ok: response.ok,
-    url: response.url
+    url: response.url,
+    // Providers read error bodies via text()/json(); delegate to node-fetch.
+    text: () => response.text(),
+    json: () => response.json(),
+    arrayBuffer: () => response.arrayBuffer()
   };
 }
 
@@ -72,9 +77,10 @@ export class EmbeddedHarness {
     this.models = undefined;
     this.credentialStore = undefined;
     this.listeners = new Set();
+    this.extensionRegistry = new ExtensionRegistry();
   }
 
-  async applyPluginConfiguration({ providerId = "google", credentials = {}, vaultPath, agentDir, enabledTools = ["read"] }) {
+  async applyPluginConfiguration({ providerId = "google", credentials = {}, vaultPath, agentDir, enabledTools = ["read"], jitiPath }) {
     if (!providers.has(providerId)) throw new Error(`Unsupported provider: ${providerId}`);
     this.providerId = providerId;
     this.credentialStore = new PiCredentialStore(credentials);
@@ -85,8 +91,27 @@ export class EmbeddedHarness {
     this.vaultPath = vaultPath;
     this.agentDir = agentDir;
     this.enabledTools = enabledTools;
+    this.jitiPath = jitiPath;
     this.agent = undefined;
+    await this.loadExtensions();
     this.emit({ type: "session.state", snapshot: this.snapshot() });
+  }
+
+  async loadExtensions() {
+    this.extensionRegistry = this.agentDir
+      ? await loadNotePiExtensions(this.agentDir, {
+          vaultPath: this.vaultPath,
+          notify: (message, type) => this.emit({ type: "extension.notify", notification: { message, level: type } }),
+          onToolRegistered: (definition) => {
+            if (!this.agent) return;
+            this.agent.tools = [...this.agent.tools, this.extensionRegistry.wrapTool(definition)];
+          }
+        }, this.jitiPath)
+      : new ExtensionRegistry();
+    if (!this.extensionRegistry.isEmpty()) {
+      this.emit({ type: "session.extensions", snapshot: this.snapshot() });
+      await this.extensionRegistry.emit({ type: "session_start", cwd: this.vaultPath });
+    }
   }
 
   providerState(providerId = this.providerId) {
@@ -128,7 +153,10 @@ export class EmbeddedHarness {
   }
 
   async submit(text, onDelta) {
+    const commandResult = await this.tryRunCommand(text);
+    if (commandResult !== undefined) return commandResult;
     const agent = this.createAgent();
+    await this.extensionRegistry.emit({ type: "turn_start" });
     const unsubscribe = agent.subscribe((event) => {
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
         const delta = event.assistantMessageEvent.delta;
@@ -141,9 +169,31 @@ export class EmbeddedHarness {
     });
     try {
       await agent.prompt(text);
-      return this.readResponse(agent);
+      const response = this.readResponse(agent);
+      await this.extensionRegistry.emit({ type: "turn_end", message: agent.state.messages.at(-1) });
+      return response;
     } finally {
       unsubscribe();
+    }
+  }
+
+  /**
+   * Route "/name args" input to an extension-registered command. Returns
+   * undefined when the input is not a registered command.
+   */
+  async tryRunCommand(text) {
+    const match = /^\/([\w-]+)\s*([\s\S]*)$/.exec(text.trim());
+    if (!match) return undefined;
+    const [, name, args] = match;
+    if (!this.extensionRegistry.commands().has(name)) return undefined;
+    this.emit({ type: "activity.tool", activity: { name: `/${name}`, status: "running" } });
+    try {
+      const result = await this.extensionRegistry.runCommand(name, args);
+      this.emit({ type: "activity.tool", activity: { name: `/${name}`, status: "completed" } });
+      return result;
+    } catch (error) {
+      this.emit({ type: "activity.tool", activity: { name: `/${name}`, status: "failed" } });
+      throw error;
     }
   }
 
@@ -151,12 +201,15 @@ export class EmbeddedHarness {
   subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   emit(event) { for (const listener of this.listeners) listener(event); }
   snapshot() {
+    const extensionSummary = this.extensionRegistry.summary();
     return {
       providerId: this.providerId,
       providerState: this.providerState(),
       modelId: this.modelId,
       models: this.models ? this.modelsForProvider() : [],
-      transcript: this.transcript()
+      transcript: this.transcript(),
+      extensions: extensionSummary.extensions,
+      extensionErrors: extensionSummary.errors
     };
   }
   async setSessionModel(modelId) {
@@ -174,7 +227,9 @@ export class EmbeddedHarness {
       .filter((message) => message.role === "user" || message.role === "assistant")
       .map((message) => ({ role: message.role, text: message.content.filter((part) => part.type === "text").map((part) => part.text).join("") }));
   }
-  close() {}
+  close() {
+    void this.extensionRegistry.emit({ type: "session_shutdown" });
+  }
 
   assertProvider(providerId) {
     if (!providers.has(providerId)) throw new Error(`Unsupported provider: ${providerId}`);
@@ -187,7 +242,7 @@ export class EmbeddedHarness {
     const model = this.models.getModel(this.providerId, this.modelId);
     if (!model) throw new Error(`Bundled chat model is unavailable: ${this.modelId}`);
     this.agent = new Agent({
-      initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model, messages, tools: this.nativeTools() },
+      initialState: { systemPrompt: "You are Note Pi. Answer concisely.", model, messages, tools: [...this.nativeTools(), ...this.extensionRegistry.agentTools()] },
       // Obsidian renderer fetch is subject to Chromium's network policy. Pi must use
       // a Node-backed fetch so provider requests use the same transport as Node tests.
       streamFn: (selectedModel, context, options) => this.models.streamSimple(selectedModel, context, { ...options, fetch: nodeBackedFetch })
@@ -205,7 +260,8 @@ export class EmbeddedHarness {
       if (relative(root, canonical).startsWith("..")) return { ok: false, error: new FileError("permission_denied", "Read is limited to the vault.", path) };
       return env.readBinaryFile(path, signal);
     };
-    return [{ ...read, execute: (id, args, signal, update) => read.execute(id, args, signal, update, { env: { cwd: root, absolutePath: env.absolutePath.bind(env), readBinaryFile: safeRead } }) }];
+    const readTool = { ...read, execute: (id, args, signal, update) => read.execute(id, args, signal, update, { env: { cwd: root, absolutePath: env.absolutePath.bind(env), readBinaryFile: safeRead } }) };
+    return [this.extensionRegistry.wrapNativeTool(readTool)];
   }
 
   readResponse(agent) {
