@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - Slash commands registered by extensions run straight from the composer (`/name args`).
 - A header chip shows how many extensions loaded, with their tools, commands, and any load failures on hover.
 - Assistant messages render as Markdown, including while streaming: headings, lists, code blocks, links, and tables inherit the vault theme.
+- Agent activity renders as a timeline with state dots, measured durations, and expandable rows whose details link to the target note; the header shows the session title and a live token count, with a new-session button.
 - Click-to-fill prompt suggestions on the empty state, and a Jump to latest control when scrolled away from the bottom.
 - `npm run deploy:testing` builds, deploys, and hot-reloads the plugin in the testing vault.
 
