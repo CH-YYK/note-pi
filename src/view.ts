@@ -446,12 +446,19 @@ export class ObsidianAgentView extends ItemView {
       const chip = this.contextRowEl.createDiv({ cls: "note-pi-context-chip" });
       chip.createSpan({ cls: "note-pi-context-chip-icon", text: "📄" });
       chip.createSpan({ text: note.name });
-      const remove = chip.createEl("button", { cls: "note-pi-context-chip-remove", attr: { "aria-label": `Remove ${note.name} from context`, title: "Remove from context" } });
+      const remove = chip.createSpan({ cls: "note-pi-context-chip-remove", attr: { role: "button", tabindex: "0", "aria-label": `Remove ${note.name} from context`, title: "Remove from context" } });
       setIcon(remove, "x");
-      remove.onclick = () => {
+      const removeNote = () => {
         this.contextNotes = this.contextNotes.filter((item) => item.path !== note.path);
         this.renderContextChips();
       };
+      remove.addEventListener("click", removeNote);
+      remove.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          removeNote();
+        }
+      });
     }
     const add = this.contextRowEl.createEl("button", { cls: "note-pi-context-add", attr: { "aria-label": "Add the focused note as context", title: "Add the focused note as context" } });
     setIcon(add.createSpan({ cls: "note-pi-context-add-icon" }), "plus");

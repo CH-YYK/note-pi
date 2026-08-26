@@ -255,8 +255,7 @@
 .note-pi-activity-dot {
   position: absolute;
   left: 1px;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 9px;
   width: 9px;
   height: 9px;
   border-radius: 50%;
@@ -274,6 +273,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.note-pi-activity-emphasis {
+  font-weight: 600;
+  font-style: italic;
+  color: var(--text-normal);
+}
 .note-pi-activity-duration {
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
@@ -287,9 +291,8 @@
 }
 .note-pi-activity-detail {
   flex-basis: 100%;
-  margin: 2px 0 4px 20px;
-  padding: 6px 10px;
-  border-left: 2px solid var(--background-modifier-border);
+  margin: 2px 0 4px;
+  padding: 2px 0;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   word-break: break-all;
@@ -397,6 +400,8 @@
 }
 .note-pi-context-row {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 6px;
 }
@@ -413,6 +418,43 @@
 }
 .note-pi-context-chip-icon {
   font-size: 11px;
+}
+.note-pi-context-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.note-pi-context-chip-remove:hover {
+  color: var(--text-normal);
+}
+.note-pi-context-chip-remove .svg-icon {
+  width: 12px;
+  height: 12px;
+}
+.note-pi-context-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 99px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+.note-pi-context-add:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.note-pi-context-add-icon {
+  display: inline-flex;
+}
+.note-pi-context-add-icon .svg-icon {
+  width: 12px;
+  height: 12px;
 }
 .note-pi-composer-box {
   display: flex;
