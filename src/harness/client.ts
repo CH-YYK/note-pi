@@ -21,7 +21,7 @@ export interface HarnessClient {
   snapshot(): HarnessSnapshot;
   subscribe(listener: (event: HarnessEvent) => void): () => void;
   setSessionModel(modelId: string): Promise<void>;
-  submit(text: string, onDelta?: (delta: string) => void): Promise<string>;
+  submit(text: string, onDelta?: (delta: string) => void, options?: { contextNotes?: string[] }): Promise<string>;
   cancel(): void;
   newSession(): void | Promise<void>;
   resumeSession(id: string): Promise<void>;

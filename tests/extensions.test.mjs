@@ -246,3 +246,13 @@ test("corrupted session files are skipped without breaking the store", async () 
     assert.deepEqual(harness.snapshot().sessions, []);
   });
 });
+
+test("withContextNotes prepends attached vault notes without touching bare prompts", () => {
+  const harness = new EmbeddedHarness();
+  assert.equal(harness.withContextNotes("hello"), "hello");
+  assert.equal(harness.withContextNotes("hello", []), "hello");
+  const wrapped = harness.withContextNotes("summarize this", ["Notes/A.md", "Notes/B.md"]);
+  assert.ok(wrapped.endsWith("summarize this"));
+  assert.ok(wrapped.includes("- Notes/A.md"));
+  assert.ok(wrapped.includes("- Notes/B.md"));
+});
