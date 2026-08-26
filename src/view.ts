@@ -47,6 +47,10 @@ export class ObsidianAgentView extends ItemView {
   private titleNameEl?: HTMLElement;
   private railEl?: HTMLElement;
   private railVisible = false;
+  private railHideTimer?: number;
+  private historyButtonEl?: HTMLButtonElement;
+  private contextNotes: { path: string; name: string }[] = [];
+  private contextRowEl?: HTMLElement;
 
   constructor(leaf: WorkspaceLeaf, private readonly harness: HarnessClient, private readonly openSettings: () => void) {
     super(leaf);
@@ -65,7 +69,8 @@ export class ObsidianAgentView extends ItemView {
       }
       if (event.type === "activity.thinking" && event.delta) this.addActivity({ key: "thinking", label: "Thinking", status: "working" });
       if (event.type === "activity.tool" && event.activity) {
-        this.addActivity({ key: `tool:${event.activity.name}`, label: this.activityLabel(event.activity.name, event.activity.detail), status: event.activity.status, detail: event.activity.detail });
+        const { prefix, emphasis } = this.activityLabelParts(event.activity.name, event.activity.detail);
+        this.addActivity({ key: `tool:${event.activity.name}`, label: prefix, emphasis, status: event.activity.status, detail: event.activity.detail });
       }
       if (event.type === "extension.notify" && event.notification) new Notice(event.notification.message);
       if (event.type === "session.usage" && typeof event.usage === "number") {
@@ -80,6 +85,7 @@ export class ObsidianAgentView extends ItemView {
   async onClose() {
     this.unsubscribe?.();
     this.teardownRenderedMarkdown();
+    if (this.railHideTimer) window.clearTimeout(this.railHideTimer);
   }
 
   render() {
@@ -89,7 +95,7 @@ export class ObsidianAgentView extends ItemView {
     this.contentEl.addClass("note-pi-view");
     this.renderHeader();
     this.bodyEl = this.contentEl.createDiv({ cls: "note-pi-body" });
-    if (this.railVisible || this.snapshot.sessions.length > 0) this.renderSessionRail();
+    this.renderSessionRail();
     this.transcriptEl = this.bodyEl.createDiv({ cls: "note-pi-transcript" });
     this.transcriptEl.addEventListener("scroll", () => this.updateJumpButton());
     this.renderTranscript();
@@ -101,11 +107,17 @@ export class ObsidianAgentView extends ItemView {
 
   private renderSessionRail() {
     this.railEl = this.bodyEl.createDiv({ cls: "note-pi-rail" });
+    this.railEl.toggleClass("is-open", this.railVisible);
+    this.railEl.addEventListener("mouseenter", () => this.showRail());
+    this.railEl.addEventListener("mouseleave", () => this.scheduleRailHide());
     const railHeader = this.railEl.createDiv({ cls: "note-pi-rail-header" });
     railHeader.createSpan({ cls: "note-pi-rail-title", text: "Sessions" });
     const addButton = railHeader.createEl("button", { cls: "note-pi-icon-button", attr: { "aria-label": "New session", title: "New session" } });
     setIcon(addButton, "plus");
-    addButton.onclick = () => this.startNewSession();
+    addButton.onclick = () => {
+      this.hideRail();
+      this.startNewSession();
+    };
 
     const sessions = this.snapshot.sessions;
     if (!sessions.length) {
@@ -129,7 +141,10 @@ export class ObsidianAgentView extends ItemView {
       const meta = session.updatedAt ? formatClock(new Date(session.updatedAt)) : "";
       row.createDiv({ cls: "note-pi-rail-session-meta", text: `${meta}${meta ? " · " : ""}${session.messageCount} msgs` });
       const open = () => void this.openSession(session.id);
-      row.addEventListener("click", open);
+      row.addEventListener("click", () => {
+        this.hideRail();
+        open();
+      });
       row.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -156,6 +171,33 @@ export class ObsidianAgentView extends ItemView {
     void this.harness.newSession();
   }
 
+  private showRail() {
+    if (this.railHideTimer) {
+      window.clearTimeout(this.railHideTimer);
+      this.railHideTimer = undefined;
+    }
+    if (this.railVisible) return;
+    this.railVisible = true;
+    this.railEl?.addClass("is-open");
+    this.historyButtonEl?.addClass("is-active");
+  }
+
+  private hideRail() {
+    if (this.railHideTimer) {
+      window.clearTimeout(this.railHideTimer);
+      this.railHideTimer = undefined;
+    }
+    if (!this.railVisible) return;
+    this.railVisible = false;
+    this.railEl?.removeClass("is-open");
+    this.historyButtonEl?.removeClass("is-active");
+  }
+
+  private scheduleRailHide() {
+    if (this.railHideTimer) window.clearTimeout(this.railHideTimer);
+    this.railHideTimer = window.setTimeout(() => this.hideRail(), 250);
+  }
+
   // --- Header ---------------------------------------------------------------
 
   private sessionTitle(): string {
@@ -178,11 +220,13 @@ export class ObsidianAgentView extends ItemView {
 
     const historyButton = header.createEl("button", { cls: "note-pi-icon-button", attr: { "aria-label": "Toggle session history", title: "Session history" } });
     setIcon(historyButton, "history");
+    this.historyButtonEl = historyButton;
+    historyButton.addEventListener("mouseenter", () => this.showRail());
+    historyButton.addEventListener("mouseleave", () => this.scheduleRailHide());
     historyButton.onclick = () => {
-      this.railVisible = !this.railVisible;
-      this.render();
+      if (this.railVisible) this.hideRail();
+      else this.showRail();
     };
-    historyButton.toggleClass("is-active", this.railVisible);
 
     const newSession = header.createEl("button", { cls: "note-pi-icon-button", attr: { "aria-label": "New session", title: "New session" } });
     setIcon(newSession, "plus");
@@ -271,9 +315,9 @@ export class ObsidianAgentView extends ItemView {
 
   // --- Activity timeline --------------------------------------------------------
 
-  private activityLabel(name: string, detail?: string): string {
-    if (name === "read" && detail) return `Read: ${detail.split("/").pop() ?? detail}`;
-    return `Using tool: ${name}`;
+  private activityLabelParts(name: string, detail?: string): { prefix: string; emphasis: string } {
+    if (name === "read" && detail) return { prefix: "Read: ", emphasis: detail.split("/").pop() ?? detail };
+    return { prefix: "Using tool: ", emphasis: name };
   }
 
   private currentTimeline(): HTMLElement {
@@ -283,7 +327,7 @@ export class ObsidianAgentView extends ItemView {
     return this.turnTimelineEl;
   }
 
-  private addActivity(activity: { key: string; label: string; status: string; detail?: string }) {
+  private addActivity(activity: { key: string; label: string; emphasis?: string; status: string; detail?: string }) {
     const timeline = this.currentTimeline();
     const working = activity.status === "working" || activity.status === "running";
     const existing = [...timeline.querySelectorAll<HTMLElement>(".note-pi-activity")].find((item) => item.dataset.key === activity.key && item.dataset.state === "working");
@@ -300,7 +344,9 @@ export class ObsidianAgentView extends ItemView {
     item.setAttr("role", "button");
     item.setAttr("tabindex", "0");
     item.createSpan({ cls: "note-pi-activity-dot" });
-    item.createSpan({ cls: "note-pi-activity-label", text: activity.label });
+    const label = item.createSpan({ cls: "note-pi-activity-label" });
+    label.appendText(activity.label);
+    if (activity.emphasis) label.createSpan({ cls: "note-pi-activity-emphasis", text: activity.emphasis });
     item.createSpan({ cls: "note-pi-activity-duration" });
     item.createSpan({ cls: "note-pi-activity-chevron", text: "›" });
     if (activity.detail) item.dataset.detail = activity.detail;
@@ -359,13 +405,8 @@ export class ObsidianAgentView extends ItemView {
 
   private renderComposer() {
     const composer = this.contentEl.createDiv({ cls: "note-pi-composer" });
-    const activeNote = this.app.workspace.getActiveFile()?.basename;
-    if (activeNote) {
-      const contextRow = composer.createDiv({ cls: "note-pi-context-row" });
-      const chip = contextRow.createDiv({ cls: "note-pi-context-chip" });
-      chip.createSpan({ cls: "note-pi-context-chip-icon", text: "📄" });
-      chip.createSpan({ text: activeNote });
-    }
+    this.contextRowEl = composer.createDiv({ cls: "note-pi-context-row" });
+    this.renderContextChips();
     const box = composer.createDiv({ cls: "note-pi-composer-box" });
     this.composerEl = box.createEl("textarea", {
       attr: { placeholder: "Ask anything…", rows: "1", "aria-label": "Message Note Pi" }
@@ -396,6 +437,44 @@ export class ObsidianAgentView extends ItemView {
       void this.submit();
     };
     this.composerEl.focus();
+  }
+
+  private renderContextChips() {
+    if (!this.contextRowEl) return;
+    this.contextRowEl.empty();
+    for (const note of this.contextNotes) {
+      const chip = this.contextRowEl.createDiv({ cls: "note-pi-context-chip" });
+      chip.createSpan({ cls: "note-pi-context-chip-icon", text: "📄" });
+      chip.createSpan({ text: note.name });
+      const remove = chip.createSpan({ cls: "note-pi-context-chip-remove", attr: { role: "button", tabindex: "0", "aria-label": `Remove ${note.name} from context`, title: "Remove from context" } });
+      setIcon(remove, "x");
+      const removeNote = () => {
+        this.contextNotes = this.contextNotes.filter((item) => item.path !== note.path);
+        this.renderContextChips();
+      };
+      remove.addEventListener("click", removeNote);
+      remove.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          removeNote();
+        }
+      });
+    }
+    const add = this.contextRowEl.createEl("button", { cls: "note-pi-context-add", attr: { "aria-label": "Add the focused note as context", title: "Add the focused note as context" } });
+    setIcon(add.createSpan({ cls: "note-pi-context-add-icon" }), "plus");
+    add.createSpan({ text: "Add current note" });
+    add.onclick = () => this.addFocusedNoteContext();
+  }
+
+  private addFocusedNoteContext() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice("No focused note to add. Focus a note first.");
+      return;
+    }
+    if (this.contextNotes.some((note) => note.path === file.path)) return;
+    this.contextNotes.push({ path: file.path, name: file.basename });
+    this.renderContextChips();
   }
 
   private renderModelPicker(parent: HTMLElement) {
@@ -450,10 +529,14 @@ export class ObsidianAgentView extends ItemView {
     this.streamRender = undefined;
     body.addClass("note-pi-streaming");
     try {
-      const result = await this.harness.submit(prompt, (delta) => {
-        this.streamMarkdown += delta;
-        this.scheduleStreamRender();
-      });
+      const result = await this.harness.submit(
+        prompt,
+        (delta) => {
+          this.streamMarkdown += delta;
+          this.scheduleStreamRender();
+        },
+        { contextNotes: this.contextNotes.map((note) => note.path) }
+      );
       // Slash-command results and non-streaming providers return text
       // without emitting deltas; render the returned text in that case.
       if (!this.streamMarkdown && result) this.streamMarkdown = result;

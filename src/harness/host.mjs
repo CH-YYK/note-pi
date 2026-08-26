@@ -229,7 +229,7 @@ export class AgentController {
     return this.readResponse(agent);
   }
 
-  async submit(text, onDelta) {
+  async submit(text, onDelta, options) {
     const commandResult = await this.tryRunCommand(text);
     if (commandResult !== undefined) return commandResult;
     const agent = this.createAgent();
@@ -245,7 +245,7 @@ export class AgentController {
       if (event.type === "tool_execution_end") this.emit({ type: "activity.tool", activity: { name: event.toolName, status: event.isError ? "failed" : "completed", detail: this.toolDetail(event.args) } });
     });
     try {
-      await agent.prompt(text);
+      await agent.prompt(this.withContextNotes(text, options?.contextNotes));
       const response = this.readResponse(agent);
       await this.extensionRegistry.emit({ type: "turn_end", message: agent.state.messages.at(-1) });
       return response;
@@ -254,6 +254,12 @@ export class AgentController {
       this.emit({ type: "session.usage", usage: this.usageTokens() });
       await this.persistActiveSession();
     }
+  }
+
+  withContextNotes(text, contextNotes) {
+    if (!contextNotes?.length) return text;
+    const lines = contextNotes.map((path) => `- ${path}`).join("\n");
+    return `The user attached these vault notes as context for this request:\n${lines}\n\n${text}`;
   }
 
   /**
