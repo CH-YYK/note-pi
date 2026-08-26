@@ -504,3 +504,41 @@
   .note-pi-composer-hint { display: none; }
   .note-pi-model-select { max-width: 130px; }
 }
+
+/* --- Mobile (iPad/iPhone) -----------------------------------------------------
+   Touch-first sizing for the mobile view: larger tap targets, no
+   hover-dependent affordances, and a composer tuned for the on-screen
+   keyboard. All colors remain Obsidian theme variables. */
+
+.note-pi-mobile .note-pi-icon-button {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.note-pi-mobile .note-pi-send-button {
+  min-width: 44px;
+  min-height: 44px;
+  font-size: var(--font-ui-medium);
+}
+
+.note-pi-mobile .note-pi-composer-box textarea {
+  font-size: var(--font-ui-medium);
+  line-height: 1.5;
+  min-height: 44px;
+}
+
+.note-pi-mobile .note-pi-model-select {
+  min-height: 40px;
+}
+
+.note-pi-mobile .note-pi-activity {
+  min-height: 40px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.note-pi-mobile .note-pi-user-card,
+.note-pi-mobile .note-pi-message-body {
+  font-size: var(--font-ui-medium);
+  line-height: 1.6;
+}

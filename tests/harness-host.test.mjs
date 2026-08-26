@@ -21,6 +21,22 @@ test("AgentController is the application-layer entry point", () => {
   assert.equal(controller.runtime.isAvailable(), true);
 });
 
+test("created agents receive the controller-prepared model, prompt, and tools", async () => {
+  const controller = new AgentController();
+  await controller.applyPluginConfiguration({
+    providerId: "google",
+    credentials: { google: { type: "api_key", key: "test-key" } },
+    vaultPath: import.meta.dirname,
+    enabledTools: ["read"]
+  });
+
+  const agent = controller.createAgent();
+
+  assert.equal(agent.state.model.id, "gemini-3.6-flash");
+  assert.match(agent.state.systemPrompt, /Note Pi/);
+  assert.ok(agent.state.tools.some((tool) => tool.name === "read"), "native read tool must reach the agent");
+});
+
 test("chat fails visibly when no provider credential is available", async () => {
   const originalKey = process.env.GEMINI_API_KEY;
   delete process.env.GEMINI_API_KEY;

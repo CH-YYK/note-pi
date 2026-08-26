@@ -1,25 +1,18 @@
-import { createModels } from "@earendil-works/pi-ai";
 import { join } from "node:path";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { createModels } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
 import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
+import { AUTH_PROVIDERS } from "../shared/providers.mjs";
 import { ExtensionRegistry, loadNotePiExtensions } from "./extensions.mjs";
 import { PiAgentRuntime, nodeBackedFetch } from "./pi-agent-runtime.mjs";
 
 export { nodeBackedFetch } from "./pi-agent-runtime.mjs";
-
-export const AUTH_PROVIDERS = [
-  { id: "google", label: "Google Gemini", apiKeyLabel: "Gemini API key", defaultModel: "gemini-3.6-flash" },
-  { id: "anthropic", label: "Anthropic", apiKeyLabel: "Anthropic API key", defaultModel: "claude-sonnet-4-5" },
-  { id: "github-copilot", label: "GitHub Copilot", apiKeyLabel: "GitHub token", defaultModel: "gpt-4.1" },
-  { id: "kimi-coding", label: "Kimi Code", apiKeyLabel: "Kimi Code API key", defaultModel: "k3" },
-  { id: "moonshotai", label: "Moonshot AI", apiKeyLabel: "Moonshot AI API key", defaultModel: "kimi-k3" },
-  { id: "openrouter", label: "OpenRouter", apiKeyLabel: "OpenRouter API key", defaultModel: "openai/gpt-4o-mini" }
-];
+export { AUTH_PROVIDERS } from "../shared/providers.mjs";
 
 const providers = new Map(AUTH_PROVIDERS.map((provider) => [provider.id, provider]));
 const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, kimiCodingProvider, moonshotaiProvider, openrouterProvider];
