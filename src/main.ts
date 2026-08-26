@@ -1,7 +1,7 @@
 import { Plugin, Notice, WorkspaceLeaf } from "obsidian";
 import { relative, resolve } from "node:path";
 import { checkPiRuntime } from "./plugin/runtime-compatibility";
-import { AUTH_PROVIDERS, EmbeddedHarness } from "./harness/host.mjs";
+import { AUTH_PROVIDERS, AgentController } from "./harness/host.mjs";
 import { NotePiSettingsTab } from "./settings";
 import { ObsidianAgentView, VIEW_TYPE_NOTE_PI } from "./view";
 
@@ -11,7 +11,7 @@ export interface NotePiSettings { providerId: string; agentDir: string; credenti
 const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", agentDir: "", credentials: {}, googleApiKey: "" };
 
 export default class NotePiPlugin extends Plugin {
-  private harness?: EmbeddedHarness;
+  private controller?: AgentController;
   private requestSequence = 0;
   settings: NotePiSettings = DEFAULT_SETTINGS;
 
@@ -36,8 +36,8 @@ export default class NotePiPlugin extends Plugin {
 
   onunload() {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_NOTE_PI);
-    this.harness?.close();
-    this.harness = undefined;
+    this.controller?.close();
+    this.controller = undefined;
   }
 
   providerOptions() { return AUTH_PROVIDERS; }
@@ -85,8 +85,8 @@ export default class NotePiPlugin extends Plugin {
   }
 
   private startHarness() {
-    if (!this.harness) this.harness = new EmbeddedHarness();
-    return this.harness;
+    if (!this.controller) this.controller = new AgentController();
+    return this.controller;
   }
 
   private normalizeSettings(saved: Partial<NotePiSettings> | null): NotePiSettings {

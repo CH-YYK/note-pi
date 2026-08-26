@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1.0] - 2026-08-25
+
+### Changed
+
+- The chat application now uses an explicit `AgentController` and `PiAgentRuntime` boundary. Pi's core loop, Node stream adapter, and native read-tool setup are isolated from the Obsidian-facing session, provider, and extension policy.
+
 ## [0.2.0.0] - 2026-08-25
 
 ### Added
