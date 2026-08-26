@@ -111,15 +111,33 @@
   display: flex;
   flex: 1;
   min-height: 0;
+  position: relative;
 }
 
 .note-pi-rail {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 20;
   width: 184px;
-  flex-shrink: 0;
+  max-height: calc(100% - 16px);
   overflow-y: auto;
-  border-right: 1px solid var(--background-modifier-border);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
   padding: 10px 8px;
-  background: var(--background-secondary);
+  background: var(--background-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 140ms ease, transform 140ms ease, visibility 140ms;
+}
+.note-pi-rail.is-open {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: auto;
 }
 .note-pi-rail-header {
   display: flex;
@@ -290,6 +308,7 @@
 @media (prefers-reduced-motion: reduce) {
   .note-pi-activity-working .note-pi-activity-dot,
   .note-pi-activity-running .note-pi-activity-dot { animation: none; }
+  .note-pi-rail { transition: none; }
 }
 
 /* --- Assistant messages ------------------------------------------------------ */

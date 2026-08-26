@@ -47,6 +47,8 @@ export class ObsidianAgentView extends ItemView {
   private titleNameEl?: HTMLElement;
   private railEl?: HTMLElement;
   private railVisible = false;
+  private railHideTimer?: number;
+  private historyButtonEl?: HTMLButtonElement;
 
   constructor(leaf: WorkspaceLeaf, private readonly harness: HarnessClient, private readonly openSettings: () => void) {
     super(leaf);
@@ -80,6 +82,7 @@ export class ObsidianAgentView extends ItemView {
   async onClose() {
     this.unsubscribe?.();
     this.teardownRenderedMarkdown();
+    if (this.railHideTimer) window.clearTimeout(this.railHideTimer);
   }
 
   render() {
@@ -89,7 +92,7 @@ export class ObsidianAgentView extends ItemView {
     this.contentEl.addClass("note-pi-view");
     this.renderHeader();
     this.bodyEl = this.contentEl.createDiv({ cls: "note-pi-body" });
-    if (this.railVisible || this.snapshot.sessions.length > 0) this.renderSessionRail();
+    this.renderSessionRail();
     this.transcriptEl = this.bodyEl.createDiv({ cls: "note-pi-transcript" });
     this.transcriptEl.addEventListener("scroll", () => this.updateJumpButton());
     this.renderTranscript();
@@ -101,11 +104,17 @@ export class ObsidianAgentView extends ItemView {
 
   private renderSessionRail() {
     this.railEl = this.bodyEl.createDiv({ cls: "note-pi-rail" });
+    this.railEl.toggleClass("is-open", this.railVisible);
+    this.railEl.addEventListener("mouseenter", () => this.showRail());
+    this.railEl.addEventListener("mouseleave", () => this.scheduleRailHide());
     const railHeader = this.railEl.createDiv({ cls: "note-pi-rail-header" });
     railHeader.createSpan({ cls: "note-pi-rail-title", text: "Sessions" });
     const addButton = railHeader.createEl("button", { cls: "note-pi-icon-button", attr: { "aria-label": "New session", title: "New session" } });
     setIcon(addButton, "plus");
-    addButton.onclick = () => this.startNewSession();
+    addButton.onclick = () => {
+      this.hideRail();
+      this.startNewSession();
+    };
 
     const sessions = this.snapshot.sessions;
     if (!sessions.length) {
@@ -129,7 +138,10 @@ export class ObsidianAgentView extends ItemView {
       const meta = session.updatedAt ? formatClock(new Date(session.updatedAt)) : "";
       row.createDiv({ cls: "note-pi-rail-session-meta", text: `${meta}${meta ? " · " : ""}${session.messageCount} msgs` });
       const open = () => void this.openSession(session.id);
-      row.addEventListener("click", open);
+      row.addEventListener("click", () => {
+        this.hideRail();
+        open();
+      });
       row.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -156,6 +168,33 @@ export class ObsidianAgentView extends ItemView {
     void this.harness.newSession();
   }
 
+  private showRail() {
+    if (this.railHideTimer) {
+      window.clearTimeout(this.railHideTimer);
+      this.railHideTimer = undefined;
+    }
+    if (this.railVisible) return;
+    this.railVisible = true;
+    this.railEl?.addClass("is-open");
+    this.historyButtonEl?.addClass("is-active");
+  }
+
+  private hideRail() {
+    if (this.railHideTimer) {
+      window.clearTimeout(this.railHideTimer);
+      this.railHideTimer = undefined;
+    }
+    if (!this.railVisible) return;
+    this.railVisible = false;
+    this.railEl?.removeClass("is-open");
+    this.historyButtonEl?.removeClass("is-active");
+  }
+
+  private scheduleRailHide() {
+    if (this.railHideTimer) window.clearTimeout(this.railHideTimer);
+    this.railHideTimer = window.setTimeout(() => this.hideRail(), 250);
+  }
+
   // --- Header ---------------------------------------------------------------
 
   private sessionTitle(): string {
@@ -178,11 +217,13 @@ export class ObsidianAgentView extends ItemView {
 
     const historyButton = header.createEl("button", { cls: "note-pi-icon-button", attr: { "aria-label": "Toggle session history", title: "Session history" } });
     setIcon(historyButton, "history");
+    this.historyButtonEl = historyButton;
+    historyButton.addEventListener("mouseenter", () => this.showRail());
+    historyButton.addEventListener("mouseleave", () => this.scheduleRailHide());
     historyButton.onclick = () => {
-      this.railVisible = !this.railVisible;
-      this.render();
+      if (this.railVisible) this.hideRail();
+      else this.showRail();
     };
-    historyButton.toggleClass("is-active", this.railVisible);
 
     const newSession = header.createEl("button", { cls: "note-pi-icon-button", attr: { "aria-label": "New session", title: "New session" } });
     setIcon(newSession, "plus");
