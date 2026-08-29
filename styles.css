@@ -319,6 +319,35 @@
 .note-pi-message-assistant {
   max-width: 760px;
   margin: 0 0 6px;
+  position: relative;
+}
+.note-pi-copy-button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.note-pi-message-assistant:hover .note-pi-copy-button,
+.note-pi-copy-button:focus-visible {
+  opacity: 1;
+}
+.note-pi-copy-button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.note-pi-copy-button .svg-icon {
+  width: 14px;
+  height: 14px;
 }
 .note-pi-message-assistant .note-pi-message-body {
   line-height: 1.6;
