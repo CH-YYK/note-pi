@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { discoverExtensionPaths, loadNotePiExtensions } from "../src/harness/extensions.mjs";
 import { EmbeddedHarness } from "../src/harness/host.mjs";
+import { PiAgentRuntime } from "../src/harness/pi-agent-runtime.mjs";
 
 const JITI_PATH = createRequire(import.meta.url).resolve("jiti");
 
@@ -255,4 +256,49 @@ test("withContextNotes prepends attached vault notes without touching bare promp
   assert.ok(wrapped.endsWith("summarize this"));
   assert.ok(wrapped.includes("- Notes/A.md"));
   assert.ok(wrapped.includes("- Notes/B.md"));
+});
+
+test("vault read tool reads files inside the vault", async () => {
+  await withTempAgentDir(async (vault) => {
+    await writeFile(join(vault, "note.md"), "hello vault");
+    const tool = new PiAgentRuntime(() => {}).createVaultReadTool(vault);
+    const result = await tool.execute("1", { path: "note.md" }, new AbortController().signal, undefined);
+    assert.ok(result.content[0].text.includes("hello vault"));
+  });
+});
+
+test("vault read tool denies absolute, relative, and symlink escapes", async () => {
+  await withTempAgentDir(async (vault) => {
+    const outside = join(tmpdir(), `note-pi-outside-${Date.now()}.md`);
+    await writeFile(outside, "secret");
+    await symlink(outside, join(vault, "linked.md"));
+    const tool = new PiAgentRuntime(() => {}).createVaultReadTool(vault);
+    await assert.rejects(() => tool.execute("1", { path: outside }, new AbortController().signal, undefined), /limited to the vault/);
+    await assert.rejects(() => tool.execute("2", { path: "../outside.md" }, new AbortController().signal, undefined));
+    await assert.rejects(() => tool.execute("3", { path: "linked.md" }, new AbortController().signal, undefined), /limited to the vault/);
+    await rm(outside, { force: true });
+  });
+});
+
+test("vault read tool surfaces a clean error for missing files", async () => {
+  await withTempAgentDir(async (vault) => {
+    const tool = new PiAgentRuntime(() => {}).createVaultReadTool(vault);
+    await assert.rejects(() => tool.execute("1", { path: "missing.md" }, new AbortController().signal, undefined));
+  });
+});
+
+test("context block never leaks into transcripts or session titles", async () => {
+  await withTempAgentDir(async (agentDir) => {
+    const harness = await configuredHarness(agentDir);
+    const wrapped = harness.withContextNotes("summarize this", ["Notes/A.md"]);
+    pushFakeTurn(harness, wrapped);
+    await harness.newSession();
+
+    const snapshot = harness.snapshot();
+    assert.equal(snapshot.sessions[0].title, "summarize this");
+
+    await harness.resumeSession(snapshot.sessions[0].id);
+    const transcript = harness.snapshot().transcript;
+    assert.equal(transcript[0].text, "summarize this");
+  });
 });

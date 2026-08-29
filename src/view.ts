@@ -52,7 +52,7 @@ export class ObsidianAgentView extends ItemView {
   private contextNotes: { path: string; name: string }[] = [];
   private contextRowEl?: HTMLElement;
 
-  constructor(leaf: WorkspaceLeaf, private readonly harness: HarnessClient, private readonly openSettings: () => void) {
+  constructor(leaf: WorkspaceLeaf, private harness: HarnessClient, private readonly openSettings: () => void) {
     super(leaf);
     this.snapshot = harness.snapshot();
   }
@@ -62,6 +62,7 @@ export class ObsidianAgentView extends ItemView {
   getIcon() { return "bot"; }
 
   async onOpen() {
+    this.rebindLiveHarness();
     this.unsubscribe = this.harness.subscribe((event) => {
       if (event.snapshot) {
         this.snapshot = event.snapshot;
@@ -80,6 +81,19 @@ export class ObsidianAgentView extends ItemView {
       }
     });
     this.render();
+  }
+
+  // A workspace-restored leaf can be created through a previous plugin
+  // instance's lingering view registration, binding it to a dead harness
+  // (default provider, empty sessions). Rebind to the live plugin's harness
+  // without importing the plugin class: duck-typed lookup through the app.
+  private rebindLiveHarness() {
+    const registry = (this.app as unknown as { plugins?: { plugins?: Record<string, { harnessClient?(): HarnessClient }> } }).plugins?.plugins;
+    const live = registry?.["note-pi"]?.harnessClient?.();
+    if (live && live !== this.harness) {
+      this.harness = live;
+      this.snapshot = live.snapshot();
+    }
   }
 
   async onClose() {
@@ -155,7 +169,11 @@ export class ObsidianAgentView extends ItemView {
   }
 
   private async openSession(id: string) {
-    if (this.isStreaming || id === this.snapshot.activeSessionId) return;
+    if (id === this.snapshot.activeSessionId) return;
+    if (this.isStreaming) {
+      new Notice("Wait for the current response before switching sessions.");
+      return;
+    }
     try {
       await this.harness.resumeSession(id);
     } catch (error) {
@@ -227,6 +245,7 @@ export class ObsidianAgentView extends ItemView {
       if (this.railVisible) this.hideRail();
       else this.showRail();
     };
+    historyButton.toggleClass("is-active", this.railVisible);
 
     const newSession = header.createEl("button", { cls: "note-pi-icon-button", attr: { "aria-label": "New session", title: "New session" } });
     setIcon(newSession, "plus");
@@ -309,6 +328,17 @@ export class ObsidianAgentView extends ItemView {
     const message = this.transcriptEl.createDiv({ cls: "note-pi-message note-pi-message-assistant" });
     const body = message.createDiv({ cls: "note-pi-message-body" });
     if (text) this.renderMarkdownInto(body, text);
+    const copy = message.createEl("button", { cls: "note-pi-copy-button", attr: { "aria-label": "Copy message text", title: "Copy" } });
+    setIcon(copy, "copy");
+    copy.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(body.innerText);
+        setIcon(copy, "check");
+        window.setTimeout(() => setIcon(copy, "copy"), 1200);
+      } catch {
+        new Notice("Could not copy the message.");
+      }
+    };
     this.scrollTranscriptIfFollowing();
     return body;
   }
