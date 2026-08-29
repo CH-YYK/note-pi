@@ -25,6 +25,11 @@ export default class NotePiPlugin extends Plugin {
     await this.saveData(this.settings);
     await this.configureHarness();
     this.registerView(VIEW_TYPE_NOTE_PI, (leaf) => new ObsidianAgentView(leaf, this.startHarness(), () => this.openSettings()));
+    // A leaf restored from the workspace layout can be created through a
+    // previous plugin instance's registration, binding it to a dead harness
+    // (default provider, empty sessions). Force recreation so every view
+    // binds to this instance's controller.
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_NOTE_PI);
     this.addSettingTab(new NotePiSettingsTab(this.app, this));
     this.addCommand({ id: "open-chat", name: "Open Note Pi", callback: () => this.activateView() });
     this.addCommand({ id: "open-settings", name: "Open Note Pi settings", callback: () => this.openSettings() });
@@ -87,6 +92,11 @@ export default class NotePiPlugin extends Plugin {
   private startHarness() {
     if (!this.controller) this.controller = new AgentController();
     return this.controller;
+  }
+
+  /** Public lookup so restored views can rebind to the live harness. */
+  harnessClient() {
+    return this.startHarness();
   }
 
   private normalizeSettings(saved: Partial<NotePiSettings> | null): NotePiSettings {

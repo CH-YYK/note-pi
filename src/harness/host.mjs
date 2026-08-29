@@ -17,6 +17,15 @@ export { AUTH_PROVIDERS } from "../shared/providers.mjs";
 const providers = new Map(AUTH_PROVIDERS.map((provider) => [provider.id, provider]));
 const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, kimiCodingProvider, moonshotaiProvider, openrouterProvider];
 
+const CONTEXT_BLOCK_HEADER = "The user attached these vault notes as context for this request:";
+const CONTEXT_BLOCK_RE = /^The user attached these vault notes as context for this request:\n(?:- [^\n]*\n)+\n?/;
+
+// Attached context notes are prepended to the prompt text the model sees, but
+// they must never surface in titles or rendered transcripts.
+export function stripContextBlock(text) {
+  return text.replace(CONTEXT_BLOCK_RE, "");
+}
+
 export class PiCredentialStore {
   constructor(credentials = {}, persist = async (_credentials) => {}) {
     this.credentials = { ...credentials };
@@ -127,7 +136,7 @@ export class AgentController {
     if (!dir || messages.length === 0) return;
     const existing = this.sessions.find((session) => session.id === this.activeSessionId);
     const firstUser = messages.find((message) => message.role === "user");
-    const firstText = firstUser?.content?.filter((part) => part.type === "text").map((part) => part.text).join(" ") ?? "";
+    const firstText = stripContextBlock(firstUser?.content?.filter((part) => part.type === "text").map((part) => part.text).join(" ") ?? "");
     const title = (existing?.title ?? firstText.trim().replace(/\s+/g, " ").slice(0, 60)) || "Untitled session";
     const record = {
       version: 1,
@@ -259,7 +268,7 @@ export class AgentController {
   withContextNotes(text, contextNotes) {
     if (!contextNotes?.length) return text;
     const lines = contextNotes.map((path) => `- ${path}`).join("\n");
-    return `The user attached these vault notes as context for this request:\n${lines}\n\n${text}`;
+    return `${CONTEXT_BLOCK_HEADER}\n${lines}\n\n${text}`;
   }
 
   /**
@@ -330,7 +339,12 @@ export class AgentController {
   transcript() {
     return (this.agent?.state.messages ?? this.activeSessionMessages())
       .filter((message) => message.role === "user" || message.role === "assistant")
-      .map((message) => ({ role: message.role, text: message.content.filter((part) => part.type === "text").map((part) => part.text).join("") }));
+      .map((message) => ({
+        role: message.role,
+        text: message.role === "user"
+          ? stripContextBlock(message.content.filter((part) => part.type === "text").map((part) => part.text).join(""))
+          : message.content.filter((part) => part.type === "text").map((part) => part.text).join("")
+      }));
   }
   close() {
     void this.extensionRegistry.emit({ type: "session_shutdown" });

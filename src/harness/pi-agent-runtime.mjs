@@ -64,18 +64,34 @@ export class PiAgentRuntime {
   createVaultReadTool(vaultPath) {
     const read = createReadTool();
     const env = new NodeExecutionEnv({ cwd: vaultPath });
+    let canonicalVault;
+    const vaultRoot = async () => (canonicalVault ??= await realpath(vaultPath));
     const safeRead = async (path, signal) => {
-      const canonical = await realpath(path);
-      if (relative(vaultPath, canonical).startsWith("..")) {
+      let canonical;
+      try {
+        canonical = await realpath(path);
+      } catch {
+        // Missing file: fall back to the raw resolved path for the boundary
+        // check and let readBinaryFile surface the not-found error itself.
+        canonical = undefined;
+      }
+      const outside = canonical
+        ? relative(await vaultRoot(), canonical).startsWith("..")
+        : relative(vaultPath, path).startsWith("..");
+      if (outside) {
         return { ok: false, error: new FileError("permission_denied", "Read is limited to the vault.", path) };
       }
       return env.readBinaryFile(path, signal);
     };
+    // Keep the full NodeExecutionEnv surface (exists, absolutePath, ...) via
+    // the prototype chain and override only the vault-guarded read. The core
+    // read tool calls env.exists while resolving paths, so a partial env
+    // object breaks every read.
+    const guardedEnv = Object.create(env);
+    guardedEnv.readBinaryFile = safeRead;
     return {
       ...read,
-      execute: (id, args, signal, update) => read.execute(id, args, signal, update, {
-        env: { cwd: vaultPath, absolutePath: env.absolutePath.bind(env), readBinaryFile: safeRead }
-      })
+      execute: (id, args, signal, update) => read.execute(id, args, signal, update, { env: guardedEnv })
     };
   }
 }
