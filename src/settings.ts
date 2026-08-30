@@ -107,6 +107,7 @@ export class NotePiSettingsTab extends PluginSettingTab {
       const plugin = this.plugin;
       new Setting(container)
         .setName("Attach the focused note")
+        .setDesc("Add the currently focused note as context when a chat session starts. The chip can be removed per session in the composer.")
         .addToggle((toggle) => toggle.setValue(plugin.autoContextNote!()).onChange(async (enabled) => {
           await plugin.setAutoContextNote!(enabled);
         }));

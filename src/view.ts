@@ -8,10 +8,9 @@ const STREAM_RENDER_INTERVAL_MS = 120;
 
 type RenderedMarkdown = { el: HTMLElement; component?: Component; source: string };
 
-/** Host-supplied preference for attaching the focused note to every turn. */
+/** Host-supplied preference for attaching the focused note when a session starts. */
 export interface ContextNotePrefs {
   autoContextNote(): boolean;
-  setAutoContextNote(enabled: boolean): Promise<void> | void;
 }
 
 function formatClock(date: Date): string {
@@ -58,6 +57,7 @@ export class ObsidianAgentView extends ItemView {
   private contextNotes: { path: string; name: string }[] = [];
   private contextRowEl?: HTMLElement;
   private lastFocusedNotePath?: string;
+  private seededContextSessions = new Set<string>();
 
   constructor(leaf: WorkspaceLeaf, private harness: HarnessClient, private readonly openSettings: () => void, private readonly contextPrefs?: ContextNotePrefs) {
     super(leaf);
@@ -88,14 +88,13 @@ export class ObsidianAgentView extends ItemView {
       }
     });
     // Track the last focused markdown note (the chat view itself never counts)
-    // so the auto-context chip stays put while the composer has focus, and
-    // follows along when the user switches notes.
+    // so "Add current note" and session-start seeding keep working while the
+    // composer has focus.
     const activeFile = this.app.workspace.getActiveFile();
     if (activeFile) this.lastFocusedNotePath = activeFile.path;
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
       const view = leaf?.view;
       if (view instanceof MarkdownView && view.file) this.lastFocusedNotePath = view.file.path;
-      this.renderContextChips();
     }));
     this.render();
   }
@@ -453,6 +452,7 @@ export class ObsidianAgentView extends ItemView {
   private renderComposer() {
     const composer = this.contentEl.createDiv({ cls: "note-pi-composer" });
     this.contextRowEl = composer.createDiv({ cls: "note-pi-context-row" });
+    this.seedAutoContextNote();
     this.renderContextChips();
     const box = composer.createDiv({ cls: "note-pi-composer-box" });
     this.composerEl = box.createEl("textarea", {
@@ -489,13 +489,6 @@ export class ObsidianAgentView extends ItemView {
   private renderContextChips() {
     if (!this.contextRowEl || !this.contextRowEl.isConnected) return;
     this.contextRowEl.empty();
-    const autoFile = this.autoContextFile();
-    if (autoFile) {
-      const chip = this.contextRowEl.createDiv({ cls: "note-pi-context-chip note-pi-context-chip-auto", attr: { title: "Attached automatically from the focused note. Use the Auto toggle to disable." } });
-      chip.createSpan({ cls: "note-pi-context-chip-icon", text: "📄" });
-      chip.createSpan({ text: autoFile.basename });
-      chip.createSpan({ cls: "note-pi-context-chip-badge", text: "auto" });
-    }
     for (const note of this.contextNotes) {
       const chip = this.contextRowEl.createDiv({ cls: "note-pi-context-chip" });
       chip.createSpan({ cls: "note-pi-context-chip-icon", text: "📄" });
@@ -518,25 +511,6 @@ export class ObsidianAgentView extends ItemView {
     setIcon(add.createSpan({ cls: "note-pi-context-add-icon" }), "plus");
     add.createSpan({ text: "Add current note" });
     add.onclick = () => this.addFocusedNoteContext();
-    if (this.contextPrefs) this.renderAutoContextToggle();
-  }
-
-  private renderAutoContextToggle() {
-    const enabled = this.contextPrefs!.autoContextNote();
-    const toggle = this.contextRowEl!.createEl("button", {
-      cls: `note-pi-context-auto${enabled ? " is-on" : ""}`,
-      attr: {
-        "aria-label": "Toggle automatic focused-note context",
-        "aria-pressed": String(enabled),
-        title: enabled ? "Auto-context on: the focused note is attached to every turn. Click to turn off." : "Auto-context off. Click to attach the focused note to every turn."
-      }
-    });
-    setIcon(toggle.createSpan({ cls: "note-pi-context-add-icon" }), "paperclip");
-    toggle.createSpan({ text: enabled ? "Auto on" : "Auto off" });
-    toggle.onclick = async () => {
-      await this.contextPrefs!.setAutoContextNote(!enabled);
-      this.renderContextChips();
-    };
   }
 
   /** The note treated as "current": the live active file, or the last focused one. */
@@ -547,13 +521,21 @@ export class ObsidianAgentView extends ItemView {
     return file instanceof TFile ? file : undefined;
   }
 
-  /** The focused note to attach automatically, or undefined when disabled/duplicate. */
-  private autoContextFile(): TFile | undefined {
-    if (!this.contextPrefs?.autoContextNote()) return undefined;
+  /**
+   * Seed the focused note as a regular (removable) context chip once per
+   * session when the auto-context preference is on. Seeded chips behave like
+   * manually added ones, so the user can toggle the note off with its remove
+   * control.
+   */
+  private seedAutoContextNote() {
+    const sessionId = this.snapshot.activeSessionId;
+    if (!sessionId || this.seededContextSessions.has(sessionId)) return;
+    this.seededContextSessions.add(sessionId);
+    if (!this.contextPrefs?.autoContextNote()) return;
     const file = this.focusedNoteFile();
-    if (!file) return undefined;
-    if (this.contextNotes.some((note) => note.path === file.path)) return undefined;
-    return file;
+    if (!file) return;
+    if (this.contextNotes.some((note) => note.path === file.path)) return;
+    this.contextNotes.push({ path: file.path, name: file.basename });
   }
 
   private addFocusedNoteContext() {
@@ -663,12 +645,9 @@ export class ObsidianAgentView extends ItemView {
     }
   }
 
-  /** Manually added notes plus the auto-attached focused note, if enabled. */
+  /** Notes attached to the next turn, in chip order. */
   private turnContextPaths(): string[] {
-    const paths = this.contextNotes.map((note) => note.path);
-    const autoFile = this.autoContextFile();
-    if (autoFile) paths.unshift(autoFile.path);
-    return paths;
+    return this.contextNotes.map((note) => note.path);
   }
 
   // --- Markdown rendering ---------------------------------------------------

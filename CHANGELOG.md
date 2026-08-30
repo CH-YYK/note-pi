@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- The automatically included current note can now be toggled off. When auto-context is on, the focused note is added once at the start of each session as a regular context chip that can be removed with its × control, replacing the separate Auto on/off toggle in the composer.
+
 ## [0.5.1] - 2026-08-30
 
 ### Changed

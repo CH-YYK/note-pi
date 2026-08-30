@@ -5,7 +5,7 @@ A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by b
 ## Current slice
 
 - Opens an Obsidian chat view from the command palette.
-- Automatically attaches the focused note as lightweight context (toggleable per chat), without making the note the agent's source of truth.
+- Attaches the focused note as lightweight context when a chat session starts (removable per chat), without making the note the agent's source of truth.
 - Streams status and assistant messages into the view, rendering assistant Markdown as it arrives.
 - Supports Google Gemini, Anthropic, GitHub Copilot, Kimi Code, and OpenRouter — multiple providers can hold keys at once, and the composer model picker spans all of them.
 - Stores provider API keys and tokens in the plugin's local Obsidian data file, with an in-settings connection test for each key.
@@ -81,7 +81,7 @@ Note Pi settings are split into three tabs. **General** holds the agent director
 
 The composer bar contains the current model picker, the UI equivalent of a basic `/model` control. It lists the bundled Pi model catalog for every configured provider, grouped by provider. Model choice is session-only: it is held by the harness, preserves the current transcript, and is never written to Obsidian plugin data. If the active provider's key is removed, the harness falls back to any remaining configured provider.
 
-When auto-context is enabled (the default), the currently focused note is attached to the chat automatically; a chip in the composer shows it and can be toggled off per chat.
+When auto-context is enabled (the default), the currently focused note is added as a context chip at the start of each chat session. The chip is a regular context entry: remove it with its × control to exclude the note from the session, or use "Add current note" to attach a note at any time.
 
 `/agents` and other Pi-style session controls are part of the intended Chat UI contract but are **not implemented yet**. The active note name is displayed as UI context; the current implementation does not send note contents to the model.
 
