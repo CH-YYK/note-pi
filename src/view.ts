@@ -626,8 +626,8 @@ export class ObsidianAgentView extends ItemView {
   }
 
   private autoGrowComposer() {
-    this.composerEl.style.height = "auto";
-    this.composerEl.style.height = `${Math.min(this.composerEl.scrollHeight, 200)}px`;
+    this.composerEl.setCssStyles({ height: "auto" });
+    this.composerEl.setCssStyles({ height: `${Math.min(this.composerEl.scrollHeight, 200)}px` });
   }
 
   private setStreaming(streaming: boolean) {

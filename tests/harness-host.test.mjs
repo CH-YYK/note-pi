@@ -144,7 +144,7 @@ test("agent requests use Node-backed fetch instead of Obsidian renderer fetch", 
   assert.notEqual(receivedOptions.fetch, globalThis.fetch);
 });
 
-test("Node-backed fetch adapts Node response streams to Web streams", async () => {
+test("runtime fetch returns Web-standard response streams", async () => {
   const server = createServer((_request, response) => response.end("stream-ready"));
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
