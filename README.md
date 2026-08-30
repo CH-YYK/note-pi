@@ -5,10 +5,10 @@ A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by b
 ## Current slice
 
 - Opens an Obsidian chat view from the command palette.
-- Presents the active note as lightweight context, without making the note the agent's source of truth.
+- Automatically attaches the focused note as lightweight context (toggleable per chat), without making the note the agent's source of truth.
 - Streams status and assistant messages into the view, rendering assistant Markdown as it arrives.
-- Lets you choose Google Gemini, Anthropic, GitHub Copilot, Kimi Code, Moonshot AI, or OpenRouter.
-- Stores provider API keys and tokens in the plugin's local Obsidian data file.
+- Supports Google Gemini, Anthropic, GitHub Copilot, Kimi Code, and OpenRouter — multiple providers can hold keys at once, and the composer model picker spans all of them.
+- Stores provider API keys and tokens in the plugin's local Obsidian data file, with an in-settings connection test for each key.
 - Checks Obsidian's embedded Node version against Pi's Node 22.19 runtime floor.
 - Loads pi-coding-agent-compatible extensions from the vault-local Pi agent directory (see Extensions below).
 
@@ -18,7 +18,7 @@ Note Pi has three parts. `AgentController` is the product-level application laye
 
 | Part | Responsibility | Examples |
 | --- | --- | --- |
-| **Plugin configuration** | Persistent, vault-local configuration that is analogous to setting up Pi before a session. | Provider selection, API key/token storage, disconnecting a provider. |
+| **Plugin configuration** | Persistent, vault-local configuration that is analogous to setting up Pi before a session. | Per-provider API key/token storage, connection testing, removing a credential, agent directory, auto-context toggle. |
 | **Chat UI** | The interactive session surface. It sends user input, renders streamed output, and applies session-level harness controls. | Chat messages, cancel, composer model picker, extension slash commands; future `/model` and `/agents`. |
 | **AgentController + Embedded Pi Runtime** | The application layer and bundled Pi integration. The controller applies configuration and session policy; the runtime creates Pi agents, adapts provider streaming, and exposes core tools. | `AgentController`, `PiAgentRuntime`, Pi model catalog, credentials, provider transport, transcript, cancellation. |
 
@@ -57,7 +57,7 @@ export default function (pi) {
 }
 ```
 
-Supported handlers: `session_start`, `session_shutdown`, `turn_start`, `turn_end`, `tool_call` (may return `{ block: true, reason }`), and `tool_result`. Registered tools join the agent's tool list next to the vault read tool, and `/name args` typed in the composer invokes a registered command. `typebox` and the bundled Pi packages resolve as virtual modules, so CLI-style imports work unchanged. A header chip lists loaded extensions and any load failures. The **Extensions** settings panel is the management surface: it shows each loaded module, its tools and commands, load failures, configured sources, and provides a reload control.
+Supported handlers: `session_start`, `session_shutdown`, `turn_start`, `turn_end`, `tool_call` (may return `{ block: true, reason }`), and `tool_result`. Registered tools join the agent's tool list next to the vault read tool, and `/name args` typed in the composer invokes a registered command. `typebox` and the bundled Pi packages resolve as virtual modules, so CLI-style imports work unchanged. A header chip lists loaded extensions and any load failures. The Extensions section of the **General** settings tab is the management surface: it shows each loaded module, its tools and commands, load failures, configured sources, and provides a reload control.
 
 This is compatible with the shared Pi extension model, not a drop-in copy of the full Coding Agent runtime. A limited compatibility shim allows common inspection extensions to import the Coding Agent's agent-directory and tool/command helpers, but terminal UI, keyboard shortcuts, CLI flags, package installation, and full Coding-Agent session/settings APIs remain unavailable because Note Pi deliberately embeds `pi-agent-core`.
 
@@ -68,7 +68,7 @@ Extensions execute arbitrary code with the plugin's permissions. Only place exte
 ```
 Plugin configuration                 Chat UI                              Embedded Pi Harness
 ────────────────────                 ───────                              ───────────────────
-provider + API key ───────► apply persistent configuration ─────────────► configure providers + credentials
+provider API keys ───────► apply persistent configuration ─────────────► configure providers + credentials
                                       │
                                       ├─ model picker / future `/model` ─► apply session model
                                       ├─ future `/agents` ───────────────► apply agent configuration
@@ -78,13 +78,17 @@ provider + API key ───────► apply persistent configuration ─�
                                       render message deltas
 ```
 
-Provider selection and API-key/token storage live in **Note Pi settings**. The composer bar contains the current model picker, the UI equivalent of a basic `/model` control. Model choice is session-only: it is held by the harness, preserves the current transcript, and is never written to Obsidian plugin data. Changing the provider reapplies the persistent provider configuration and starts a fresh harness session.
+Note Pi settings are split into two tabs. **General** holds the agent directory, the extension manager, and the auto-context toggle. **API Provider** is a pure key manager: pick a provider, paste its key, and save; each stored key can be replaced, connection-tested, or removed. Multiple providers can hold keys at the same time, and key management never touches the chat session.
+
+The composer bar contains the current model picker, the UI equivalent of a basic `/model` control. It lists the bundled Pi model catalog for every configured provider, grouped by provider. Model choice is session-only: it is held by the harness, preserves the current transcript, and is never written to Obsidian plugin data. If the active provider's key is removed, the harness falls back to any remaining configured provider.
+
+When auto-context is enabled (the default), the currently focused note is attached to the chat automatically; a chip in the composer shows it and can be toggled off per chat.
 
 `/agents` and other Pi-style session controls are part of the intended Chat UI contract but are **not implemented yet**. The active note name is displayed as UI context; the current implementation does not send note contents to the model.
 
 ### Provider networking
 
-Obsidian's renderer `fetch` is governed by Chromium's network policy and cannot reliably call all model-provider endpoints. The harness therefore sends Pi provider requests through bundled Node networking (`node-fetch`) and adapts the Node response stream to the Web-stream interface Pi expects. API keys remain in local Obsidian plugin data and are passed only to the selected provider request.
+Obsidian's renderer `fetch` is governed by Chromium's network policy and cannot reliably call all model-provider endpoints. The harness therefore sends Pi provider requests through bundled Node networking (`node-fetch`) and adapts the Node response stream to the Web-stream interface Pi expects. API keys remain in local Obsidian plugin data and each key is passed only to requests for the provider that owns it.
 
 ## Mobile (iPad/iPhone) runtime slice
 
@@ -108,12 +112,12 @@ The mobile build runs in Obsidian's iOS WebView and is verified to be free of `n
 ## Using the chat
 
 1. Open **Note Pi settings** from the command palette.
-2. Select a provider and save its API key or token.
+2. In the **API Provider** tab, select a provider and save its API key or token. Repeat for as many providers as you like; the test action on each saved key probes the provider with a minimal request.
 3. Run **Open Note Pi** from the command palette.
 4. Choose a model in the composer bar.
 5. Send a message. Press `Escape` while a response is streaming to cancel it.
 
-The model menu is scoped to the selected provider's bundled Pi model catalog. Kimi Code and Moonshot AI are separate providers, so their credentials and model lists are not interchangeable.
+The model menu spans the bundled Pi model catalogs of every provider with a saved key, grouped by provider. Each provider's credentials and model list are independent of the others.
 
 ## Development
 
@@ -126,7 +130,7 @@ To try it in Obsidian, install or symlink the built `main.js`, `manifest.json`, 
 
 With the Obsidian CLI enabled, `npm run deploy:testing` builds, copies the artifacts into the shared testing vault, and hot-reloads the plugin in the running app.
 
-Note Pi intentionally supports API keys and tokens only. A Gemini API key can use Google AI Studio free-tier quota when available. Kimi Code (`https://api.kimi.com/coding`) and Moonshot AI (`https://api.moonshot.ai/v1`) are separate Pi providers with separate credentials and model catalogs.
+Note Pi intentionally supports API keys and tokens only. A Gemini API key can use Google AI Studio free-tier quota when available. Kimi Code (`https://api.kimi.com/coding`) is a distinct Pi provider with its own credential and model catalog.
 
 ## Release notes
 
