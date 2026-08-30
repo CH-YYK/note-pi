@@ -4,6 +4,7 @@ import type { Plugin, SettingDefinitionItem } from "obsidian";
 export interface ProviderInfo { id: string; label: string; apiKeyLabel: string; }
 export interface StoredCredential { type: "api_key"; key?: string; }
 export interface ExtensionInfo { name: string; description: string; }
+type SettingsTabId = "general" | "providers" | "extensions";
 
 /** Result of a provider connection probe, shown in the settings tab. */
 export interface ProviderTestResult { model: string; latencyMs: number; }
@@ -31,6 +32,7 @@ export interface ProviderConfigHost {
 }
 
 export class NotePiSettingsTab extends PluginSettingTab {
+  private activeTab: SettingsTabId = "general";
   /** Last connection-check outcome per provider, for this settings session. */
   private testOutcomes = new Map<string, { ok: boolean; detail: string }>();
   /** Provider whose key is being edited. Local to this tab — key management never changes the chat provider. */
@@ -40,12 +42,18 @@ export class NotePiSettingsTab extends PluginSettingTab {
   constructor(app: App, private readonly plugin: Plugin & ProviderConfigHost) { super(app, plugin); }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    const definitions: SettingDefinitionItem[] = [];
+    const tabs = this.availableTabs();
+    if (!tabs.some(([id]) => id === this.activeTab)) this.activeTab = tabs[0][0];
+    const definitions: SettingDefinitionItem[] = [{
+      name: "Settings sections",
+      searchable: false,
+      render: (setting) => this.renderTabBar(setting, tabs)
+    }];
 
-    if (this.hasGeneralSettings()) {
+    if (this.activeTab === "general") {
       definitions.push({
         type: "group",
-        heading: "General",
+        cls: "note-pi-settings-panel",
         items: [
           ...(typeof this.plugin.autoContextNote === "function" && typeof this.plugin.setAutoContextNote === "function" ? [{
             name: "Attach the focused note",
@@ -66,12 +74,13 @@ export class NotePiSettingsTab extends PluginSettingTab {
       });
     }
 
-    const provider = this.editingProvider();
-    const configuredProviders = this.plugin.providerOptions().filter((option) => this.plugin.providerStatus(option.id) === "configured");
-    definitions.push({
-      type: "group",
-      heading: "API Provider",
-      items: [
+    if (this.activeTab === "providers") {
+      const provider = this.editingProvider();
+      const configuredProviders = this.plugin.providerOptions().filter((option) => this.plugin.providerStatus(option.id) === "configured");
+      definitions.push({
+        type: "group",
+        cls: "note-pi-settings-panel",
+        items: [
         {
           name: "Provider",
           desc: "Choose which provider's API key to add or replace.",
@@ -88,21 +97,24 @@ export class NotePiSettingsTab extends PluginSettingTab {
             : `Paste a ${provider.label} key to connect this provider.`,
           render: (setting) => this.renderApiKeyInput(setting, provider)
         },
-        ...(configuredProviders.length
-          ? [{ name: "Added keys", searchable: false }]
-          : [{ name: "Added keys", desc: "No saved keys yet.", searchable: false }]),
+        {
+          name: "Added keys",
+          searchable: false,
+          render: (setting) => this.renderSectionHeading(setting, "Added keys", !configuredProviders.length)
+        },
         ...configuredProviders.map((option) => ({
           name: option.label,
           desc: this.savedKeyDescription(option),
           render: (setting: Setting) => this.renderSavedKeyActions(setting, option)
         }))
-      ]
-    });
+        ]
+      });
+    }
 
-    if (this.hasExtensionSettings()) {
+    if (this.activeTab === "extensions") {
       definitions.push({
         type: "group",
-        heading: "Extensions",
+        cls: "note-pi-settings-panel",
         items: [{
           name: "Installed extensions",
           desc: "Vault-local extensions loaded from the configured Pi agent directory.",
@@ -153,6 +165,48 @@ export class NotePiSettingsTab extends PluginSettingTab {
 
   private hasExtensionSettings(): boolean {
     return typeof this.plugin.extensionStatus === "function";
+  }
+
+  private availableTabs(): [SettingsTabId, string][] {
+    return [
+      ...(this.hasGeneralSettings() ? [["general", "General"] as [SettingsTabId, string]] : []),
+      ...(this.hasExtensionSettings() ? [["extensions", "Extensions"] as [SettingsTabId, string]] : []),
+      ["providers", "API Provider"]
+    ];
+  }
+
+  private renderTabBar(setting: Setting, tabs: [SettingsTabId, string][]): void {
+    setting.settingEl.empty();
+    setting.settingEl.addClass("note-pi-settings-tab-row");
+    const bar = setting.settingEl.createDiv({ cls: "note-pi-settings-tabs" });
+    bar.setAttr("role", "tablist");
+    for (const [id, label] of tabs) {
+      const button = bar.createDiv({
+        cls: `vertical-tab-nav-item note-pi-settings-tab${this.activeTab === id ? " is-active" : ""}`,
+        text: label
+      });
+      button.setAttr("role", "tab");
+      button.setAttr("tabindex", "0");
+      button.setAttr("aria-selected", String(this.activeTab === id));
+      const activate = () => {
+        this.activeTab = id;
+        this.update();
+      };
+      button.addEventListener("click", activate);
+      button.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          activate();
+        }
+      });
+    }
+  }
+
+  private renderSectionHeading(setting: Setting, text: string, empty: boolean): void {
+    setting.settingEl.empty();
+    setting.settingEl.addClass("note-pi-settings-subheading");
+    setting.settingEl.createDiv({ cls: "note-pi-settings-subheading-label", text });
+    if (empty) setting.settingEl.createDiv({ cls: "note-pi-settings-empty", text: "No saved keys yet." });
   }
 
   private editingProvider(): ProviderInfo {
