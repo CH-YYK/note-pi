@@ -1,5 +1,5 @@
 import { Plugin, Notice, WorkspaceLeaf } from "obsidian";
-import { relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { checkPiRuntime } from "./plugin/runtime-compatibility";
 import { AUTH_PROVIDERS, AgentController } from "./harness/host.mjs";
 import { NotePiSettingsTab } from "./settings";
@@ -7,8 +7,8 @@ import { ObsidianAgentView, VIEW_TYPE_NOTE_PI } from "./view";
 
 type HarnessEvent = { type: string; requestId: string; node?: string; pid?: number };
 export interface NotePiCredential { type: "api_key"; key?: string; [key: string]: unknown; }
-export interface NotePiSettings { providerId: string; agentDir: string; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
-const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", agentDir: "", credentials: {}, googleApiKey: "" };
+export interface NotePiSettings { providerId: string; agentDir: string; extensions: string[]; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
+const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", agentDir: "", extensions: [], credentials: {}, googleApiKey: "" };
 
 export default class NotePiPlugin extends Plugin {
   private controller?: AgentController;
@@ -48,6 +48,10 @@ export default class NotePiPlugin extends Plugin {
   providerOptions() { return AUTH_PROVIDERS; }
   selectedProvider() { return AUTH_PROVIDERS.find((provider) => provider.id === this.settings.providerId) ?? AUTH_PROVIDERS[0]; }
   providerStatus() { return this.startHarness().providerState(this.settings.providerId); }
+  extensionStatus() {
+    const snapshot = this.startHarness().snapshot();
+    return { extensions: snapshot.extensions, errors: snapshot.extensionErrors };
+  }
 
   async saveProvider(providerId: string) {
     this.settings.providerId = providerId;
@@ -69,6 +73,16 @@ export default class NotePiPlugin extends Plugin {
   async saveAgentDir(agentDir: string) {
     this.settings.agentDir = this.normalizeAgentDir(agentDir);
     await this.saveData(this.settings);
+    await this.configureHarness();
+  }
+
+  async saveExtensions(extensionPaths: string[]) {
+    this.settings.extensions = this.normalizeExtensionPaths(extensionPaths);
+    await this.saveData(this.settings);
+    await this.configureHarness();
+  }
+
+  async reloadExtensions() {
     await this.configureHarness();
   }
 
@@ -105,7 +119,8 @@ export default class NotePiPlugin extends Plugin {
     if (savedConfiguration.googleApiKey?.trim() && !credentials.google) credentials.google = { type: "api_key", key: savedConfiguration.googleApiKey.trim() };
     const providerId = AUTH_PROVIDERS.some((provider) => provider.id === savedConfiguration.providerId) ? savedConfiguration.providerId ?? "google" : "google";
     const agentDir = this.normalizeAgentDir(savedConfiguration.agentDir === ".pi/agent" ? "" : savedConfiguration.agentDir ?? "");
-    return { ...DEFAULT_SETTINGS, ...savedConfiguration, agentDir, credentials, providerId, googleApiKey: "" };
+    const extensions = this.normalizeExtensionPaths(savedConfiguration.extensions ?? [], false);
+    return { ...DEFAULT_SETTINGS, ...savedConfiguration, agentDir, extensions, credentials, providerId, googleApiKey: "" };
   }
 
   private async configureHarness() {
@@ -114,6 +129,7 @@ export default class NotePiPlugin extends Plugin {
       credentials: this.settings.credentials,
       vaultPath: (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath(),
       agentDir: resolve(this.vaultPath(), this.settings.agentDir),
+      extensionPaths: this.settings.extensions.map((extensionPath) => resolve(this.vaultPath(), extensionPath)),
       enabledTools: ["read"],
       jitiPath: resolve(this.vaultPath(), this.manifest.dir ?? "", "runtime/jiti/lib/jiti.cjs")
     });
@@ -125,6 +141,27 @@ export default class NotePiPlugin extends Plugin {
     const vaultRelative = relative(this.vaultPath(), resolved);
     if (!vaultRelative || vaultRelative === ".." || vaultRelative.startsWith(`..${"/"}`)) throw new Error("Pi agent directory must be inside this vault.");
     return vaultRelative.replaceAll("\\", "/");
+  }
+
+  /** Store extension sources as vault-relative paths, never host paths. */
+  private normalizeExtensionPaths(values: unknown, rejectInvalid = true) {
+    if (!Array.isArray(values)) return [];
+    const normalized = new Set<string>();
+    for (const value of values) {
+      if (typeof value !== "string" || !value.trim()) continue;
+      try {
+        if (isAbsolute(value.trim())) throw new Error("Extension paths must be vault-relative.");
+        const resolved = resolve(this.vaultPath(), value.trim());
+        const vaultRelative = relative(this.vaultPath(), resolved);
+        if (!vaultRelative || vaultRelative === ".." || vaultRelative.startsWith(`..${"/"}`)) {
+          throw new Error("Extension paths must stay inside this vault.");
+        }
+        normalized.add(vaultRelative.replaceAll("\\", "/"));
+      } catch (error) {
+        if (rejectInvalid) throw error;
+      }
+    }
+    return [...normalized];
   }
 
   private async requestHealth(): Promise<HarnessEvent> {

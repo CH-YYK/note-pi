@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0.0] - 2026-08-29
+
+### Added
+
+- Desktop settings can now configure trusted, vault-local Pi extension sources. Sources may be individual TypeScript/JavaScript modules, Pi extension package directories, or directories of extensions; saving reloads them immediately.
+- The Extensions settings panel now acts as a management surface, showing loaded modules, their tools and commands, load errors, and a reload action. Common Coding Agent inspection extensions can use limited agent-directory and tool/command compatibility helpers without requiring Pi's terminal UI.
+
 ## [0.3.0.0] - 2026-08-25
 
 ### Added
