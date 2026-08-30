@@ -26,8 +26,7 @@ export default class NotePiPlugin extends Plugin {
     await this.saveData(this.settings);
     await this.configureHarness();
     this.registerView(VIEW_TYPE_NOTE_PI, (leaf) => new ObsidianAgentView(leaf, this.startHarness(), () => this.openSettings(), {
-      autoContextNote: () => this.settings.autoContextNote,
-      setAutoContextNote: (enabled) => this.setAutoContextNote(enabled)
+      autoContextNote: () => this.settings.autoContextNote
     }));
     // A leaf restored from the workspace layout can be created through a
     // previous plugin instance's registration, binding it to a dead harness
