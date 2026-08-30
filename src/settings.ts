@@ -3,8 +3,7 @@ import type { Plugin } from "obsidian";
 
 export interface ProviderInfo { id: string; label: string; apiKeyLabel: string; }
 export interface StoredCredential { type: "api_key"; key?: string; }
-export interface ExtensionInfo { path: string; tools: string[]; commands: string[]; }
-export interface ExtensionError { path: string; error: string; }
+export interface ExtensionInfo { name: string; description: string; }
 
 /** Result of a provider connection probe, shown in the settings tab. */
 export interface ProviderTestResult { model: string; latencyMs: number; }
@@ -19,11 +18,11 @@ export function maskCredentialKey(key: string): string {
 /**
  * Structural contract the settings tab needs from its host plugin. Both the
  * desktop NotePiPlugin and the mobile NotePiMobilePlugin satisfy it; the Pi
- * agent directory, extension controls, and focused-note toggle only render
+ * agent directory, extension inventory, and focused-note toggle only render
  * when the host exposes their (desktop-only) persistence methods.
  */
 export interface ProviderConfigHost {
-  settings: { providerId: string; agentDir?: string; extensions?: string[]; credentials?: Record<string, StoredCredential> };
+  settings: { providerId: string; agentDir?: string; credentials?: Record<string, StoredCredential> };
   providerOptions(): ProviderInfo[];
   providerStatus(providerId?: string): string;
   saveApiKey(apiKey: string, providerId?: string): Promise<void>;
@@ -33,12 +32,10 @@ export interface ProviderConfigHost {
   saveAgentDir?(agentDir: string): Promise<void>;
   autoContextNote?(): boolean;
   setAutoContextNote?(enabled: boolean): Promise<void>;
-  saveExtensions?(extensionPaths: string[]): Promise<void>;
-  reloadExtensions?(): Promise<void>;
-  extensionStatus?(): { extensions: ExtensionInfo[]; errors: ExtensionError[] };
+  extensionStatus?(): { extensions: ExtensionInfo[] };
 }
 
-type SettingsTabId = "general" | "providers";
+type SettingsTabId = "general" | "providers" | "extensions";
 
 export class NotePiSettingsTab extends PluginSettingTab {
   private activeTab: SettingsTabId = "general";
@@ -53,26 +50,35 @@ export class NotePiSettingsTab extends PluginSettingTab {
 
   private hasGeneralSettings(): boolean {
     return Boolean(
-      (this.plugin.defaultAgentDir && this.plugin.saveAgentDir) ||
       (this.plugin.autoContextNote && this.plugin.setAutoContextNote) ||
-      this.plugin.saveExtensions
+      (this.plugin.defaultAgentDir && this.plugin.saveAgentDir)
     );
   }
 
+  private hasExtensionSettings(): boolean {
+    return Boolean(this.plugin.extensionStatus);
+  }
+
   display(): void {
-    if (this.activeTab === "general" && !this.hasGeneralSettings()) this.activeTab = "providers";
+    if (this.activeTab === "general" && !this.hasGeneralSettings()) this.activeTab = this.hasExtensionSettings() ? "extensions" : "providers";
+    if (this.activeTab === "extensions" && !this.hasExtensionSettings()) this.activeTab = this.hasGeneralSettings() ? "general" : "providers";
     this.containerEl.empty();
     this.containerEl.createEl("h2", { text: "Note Pi" });
-    if (this.hasGeneralSettings()) this.renderTabBar();
+    if (this.hasGeneralSettings() || this.hasExtensionSettings()) this.renderTabBar();
     const content = this.containerEl.createDiv({ cls: "note-pi-settings-content" });
     if (this.activeTab === "general") this.renderGeneralTab(content);
+    else if (this.activeTab === "extensions") this.renderExtensionsTab(content);
     else this.renderProvidersTab(content);
   }
 
   private renderTabBar(): void {
     const bar = this.containerEl.createDiv({ cls: "note-pi-settings-tabs" });
     bar.setAttr("role", "tablist");
-    const tabs: [SettingsTabId, string][] = [["general", "General"], ["providers", "API Provider"]];
+    const tabs: [SettingsTabId, string][] = [
+      ...(this.hasGeneralSettings() ? [["general", "General"] as [SettingsTabId, string]] : []),
+      ...(this.hasExtensionSettings() ? [["extensions", "Extensions"] as [SettingsTabId, string]] : []),
+      ["providers", "API Provider"]
+    ];
     for (const [id, label] of tabs) {
       // Reuse Obsidian's native settings-nav item classes so the tabs pick up
       // whatever theme is installed instead of a bespoke look.
@@ -111,6 +117,7 @@ export class NotePiSettingsTab extends PluginSettingTab {
       let agentDirInput: HTMLInputElement;
       new Setting(container)
         .setName("Pi agent directory")
+        .setDesc("Vault-relative directory where Note Pi discovers local extensions and stores its sessions.")
         .addText((text) => {
           text.setPlaceholder(plugin.defaultAgentDir!());
           text.setValue(plugin.settings.agentDir ?? "");
@@ -122,77 +129,21 @@ export class NotePiSettingsTab extends PluginSettingTab {
           this.display();
         }));
     }
-
-    this.renderExtensionManager(container);
   }
 
-  private renderExtensionManager(container: HTMLElement): void {
-    const { saveExtensions, reloadExtensions, extensionStatus } = this.plugin;
-    if (!saveExtensions) return;
-    let extensionPathsInput: HTMLTextAreaElement;
-    const status = extensionStatus?.() ?? { extensions: [], errors: [] };
-    const manager = container.createDiv({ cls: "note-pi-extension-manager" });
-    const heading = manager.createDiv({ cls: "note-pi-extension-manager-heading" });
-    const copy = heading.createDiv();
-    copy.createEl("h3", { text: "Extensions" });
-    copy.createDiv({ cls: "note-pi-extension-manager-copy", text: "Trusted, vault-local capabilities for Note Pi." });
-    const badgeText = status.errors.length ? `${status.errors.length} need attention` : `${status.extensions.length} loaded`;
-    heading.createDiv({ cls: `note-pi-extension-manager-badge${status.errors.length ? " is-error" : ""}`, text: badgeText });
+  // --- Extensions tab ----------------------------------------------------------
 
-    const overview = manager.createDiv({ cls: "note-pi-extension-overview" });
-    if (status.extensions.length) {
-      for (const extension of status.extensions) {
-        const card = overview.createDiv({ cls: "note-pi-extension-card" });
-        card.createDiv({ cls: "note-pi-extension-name", text: extension.path.split("/").at(-1) ?? extension.path });
-        const capabilities = [
-          extension.tools.length ? `Tools: ${extension.tools.join(", ")}` : "No tools",
-          extension.commands.length ? `Commands: ${extension.commands.map((command) => `/${command}`).join(", ")}` : "No commands"
-        ];
-        card.createDiv({ cls: "note-pi-extension-capabilities", text: capabilities.join(" · ") });
-        card.createDiv({ cls: "note-pi-extension-path", text: extension.path });
-      }
-    } else {
-      overview.createDiv({ cls: "note-pi-extension-empty", text: "No extension modules are loaded. Add a source below or place a module in the default extensions folder." });
-    }
-    for (const failure of status.errors) {
-      const card = overview.createDiv({ cls: "note-pi-extension-card is-error" });
-      card.createDiv({ cls: "note-pi-extension-name", text: failure.path.split("/").at(-1) ?? failure.path });
-      card.createDiv({ cls: "note-pi-extension-capabilities", text: failure.error });
-    }
-
-    new Setting(manager)
-      .setName("Extension sources")
-      .setDesc("One vault-relative TypeScript or JavaScript file, extension package directory, or extension directory per line. The default <agent directory>/extensions folder is always included.")
-      .addTextArea((text) => {
-        text.setPlaceholder("_pi/agent/extensions/my-extension.ts");
-        text.setValue((this.plugin.settings.extensions ?? []).join("\n"));
-        text.inputEl.rows = 4;
-        extensionPathsInput = text.inputEl;
-      })
-      .addButton((button) => button.setButtonText("Save extensions").onClick(async () => {
-        try {
-          await saveExtensions(extensionPathsInput.value.split(/\r?\n/));
-          new Notice("Extension sources saved and reloaded.");
-        } catch (error) {
-          new Notice(error instanceof Error ? error.message : "Could not save extension sources.");
-        } finally {
-          this.display();
-        }
-      }));
-    if (reloadExtensions) {
-      new Setting(manager)
-        .setName("Reload installed extensions")
-        .setDesc("Re-read extension files and refresh the status above. Your active chat session is restarted.")
-        .addButton((button) => button.setButtonText("Reload extensions").onClick(async () => {
-          try {
-            await reloadExtensions();
-            new Notice("Extensions reloaded.");
-          } catch (error) {
-            new Notice(error instanceof Error ? error.message : "Could not reload extensions.");
-          } finally {
-            this.display();
-          }
-        }));
+  private renderExtensionsTab(container: HTMLElement): void {
+    const extensions = this.plugin.extensionStatus?.().extensions ?? [];
+    const table = container.createEl("table", { cls: "note-pi-extension-table" });
+    const header = table.createEl("thead").createEl("tr");
+    header.createEl("th", { text: "Extension" });
+    header.createEl("th", { text: "Description" });
+    const body = table.createEl("tbody");
+    for (const extension of extensions) {
+      const row = body.createEl("tr");
+      row.createEl("td", { text: extension.name });
+      row.createEl("td", { text: extension.description });
     }
   }
 

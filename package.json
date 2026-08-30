@@ -1,6 +1,6 @@
 {
   "name": "note-pi",
-  "version": "0.1.0",
+  "version": "0.5.1",
   "private": false,
   "description": "Desktop-only Obsidian view backed by an embedded Pi harness runtime",
   "scripts": {

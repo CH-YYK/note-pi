@@ -1,14 +1,15 @@
 import { Plugin, Notice, WorkspaceLeaf } from "obsidian";
-import { isAbsolute, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { checkPiRuntime } from "./plugin/runtime-compatibility";
+import { ensureVendoredJitiRuntime } from "./plugin/jiti-runtime";
 import { AUTH_PROVIDERS, AgentController } from "./harness/host.mjs";
 import { NotePiSettingsTab } from "./settings";
 import { ObsidianAgentView, VIEW_TYPE_NOTE_PI } from "./view";
 
 type HarnessEvent = { type: string; requestId: string; node?: string; pid?: number };
 export interface NotePiCredential { type: "api_key"; key?: string; [key: string]: unknown; }
-export interface NotePiSettings { providerId: string; agentDir: string; autoContextNote: boolean; extensions: string[]; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
-const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", agentDir: "", autoContextNote: true, extensions: [], credentials: {}, googleApiKey: "" };
+export interface NotePiSettings { providerId: string; agentDir: string; autoContextNote: boolean; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
+const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", agentDir: "", autoContextNote: true, credentials: {}, googleApiKey: "" };
 
 export default class NotePiPlugin extends Plugin {
   private controller?: AgentController;
@@ -82,16 +83,6 @@ export default class NotePiPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
-  async saveExtensions(extensionPaths: string[]) {
-    this.settings.extensions = this.normalizeExtensionPaths(extensionPaths);
-    await this.saveData(this.settings);
-    await this.configureHarness();
-  }
-
-  async reloadExtensions() {
-    await this.configureHarness();
-  }
-
   openSettings() {
     const settings = (this.app as unknown as { setting: { open(): void; openTabById(id: string): void } }).setting;
     settings.open();
@@ -120,7 +111,7 @@ export default class NotePiPlugin extends Plugin {
   }
 
   private normalizeSettings(saved: Partial<NotePiSettings> | null): NotePiSettings {
-    const { modelId: _legacyModelId, ...savedConfiguration } = (saved ?? {}) as Partial<NotePiSettings> & { modelId?: string };
+    const { modelId: _legacyModelId, extensions: _legacyExtensions, ...savedConfiguration } = (saved ?? {}) as Partial<NotePiSettings> & { modelId?: string; extensions?: unknown };
     const credentials = { ...(savedConfiguration.credentials ?? {}) };
     if (savedConfiguration.googleApiKey?.trim() && !credentials.google) credentials.google = { type: "api_key", key: savedConfiguration.googleApiKey.trim() };
     // Drop credentials for providers that no longer exist in the catalog.
@@ -129,19 +120,18 @@ export default class NotePiPlugin extends Plugin {
     }
     const providerId = AUTH_PROVIDERS.some((provider) => provider.id === savedConfiguration.providerId) ? savedConfiguration.providerId ?? "google" : "google";
     const agentDir = this.normalizeAgentDir(savedConfiguration.agentDir === ".pi/agent" ? "" : savedConfiguration.agentDir ?? "");
-    const extensions = this.normalizeExtensionPaths(savedConfiguration.extensions ?? [], false);
-    return { ...DEFAULT_SETTINGS, ...savedConfiguration, agentDir, extensions, credentials, providerId, googleApiKey: "" };
+    return { ...DEFAULT_SETTINGS, ...savedConfiguration, agentDir, credentials, providerId, googleApiKey: "" };
   }
 
   private async configureHarness() {
+    const pluginDir = resolve(this.vaultPath(), this.manifest.dir ?? "");
     await this.startHarness().applyPluginConfiguration({
       providerId: this.settings.providerId,
       credentials: this.settings.credentials,
       vaultPath: (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath(),
       agentDir: resolve(this.vaultPath(), this.settings.agentDir),
-      extensionPaths: this.settings.extensions.map((extensionPath) => resolve(this.vaultPath(), extensionPath)),
       enabledTools: ["read"],
-      jitiPath: resolve(this.vaultPath(), this.manifest.dir ?? "", "runtime/jiti/lib/jiti.cjs")
+      jitiPath: await ensureVendoredJitiRuntime(pluginDir)
     });
   }
 
@@ -151,27 +141,6 @@ export default class NotePiPlugin extends Plugin {
     const vaultRelative = relative(this.vaultPath(), resolved);
     if (!vaultRelative || vaultRelative === ".." || vaultRelative.startsWith(`..${"/"}`)) throw new Error("Pi agent directory must be inside this vault.");
     return vaultRelative.replaceAll("\\", "/");
-  }
-
-  /** Store extension sources as vault-relative paths, never host paths. */
-  private normalizeExtensionPaths(values: unknown, rejectInvalid = true) {
-    if (!Array.isArray(values)) return [];
-    const normalized = new Set<string>();
-    for (const value of values) {
-      if (typeof value !== "string" || !value.trim()) continue;
-      try {
-        if (isAbsolute(value.trim())) throw new Error("Extension paths must be vault-relative.");
-        const resolved = resolve(this.vaultPath(), value.trim());
-        const vaultRelative = relative(this.vaultPath(), resolved);
-        if (!vaultRelative || vaultRelative === ".." || vaultRelative.startsWith(`..${"/"}`)) {
-          throw new Error("Extension paths must stay inside this vault.");
-        }
-        normalized.add(vaultRelative.replaceAll("\\", "/"));
-      } catch (error) {
-        if (rejectInvalid) throw error;
-      }
-    }
-    return [...normalized];
   }
 
   private async requestHealth(): Promise<HarnessEvent> {

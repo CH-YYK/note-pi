@@ -76,73 +76,31 @@
   border-color: color-mix(in srgb, var(--text-error) 40%, transparent);
 }
 
-/* --- Settings: extension manager ---------------------------------------- */
+/* --- Settings: extension inventory -------------------------------------- */
 
-.note-pi-extension-manager {
-  margin: 24px 0 12px;
-  padding: 16px;
-  border: 1px solid var(--background-modifier-border);
-  border-left: 3px solid var(--interactive-accent);
-  border-radius: 8px;
-  background: var(--background-secondary);
+.note-pi-extension-table {
+  width: 100%;
+  border-collapse: collapse;
 }
-.note-pi-extension-manager-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+.note-pi-extension-table th,
+.note-pi-extension-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  text-align: left;
+  vertical-align: top;
 }
-.note-pi-extension-manager h3 {
-  margin: 0;
-  font-size: var(--font-ui-medium);
-}
-.note-pi-extension-manager-copy,
-.note-pi-extension-path {
-  margin-top: 3px;
-  color: var(--text-faint);
-  font-size: var(--font-ui-smaller);
-}
-.note-pi-extension-manager-badge {
-  flex: 0 0 auto;
-  padding: 2px 8px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 999px;
+.note-pi-extension-table th {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
-}
-.note-pi-extension-manager-badge.is-error {
-  border-color: color-mix(in srgb, var(--text-error) 45%, transparent);
-  color: var(--text-error);
-}
-.note-pi-extension-overview {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-.note-pi-extension-card,
-.note-pi-extension-empty {
-  padding: 8px 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-primary);
-}
-.note-pi-extension-card.is-error {
-  border-color: color-mix(in srgb, var(--text-error) 35%, var(--background-modifier-border));
-}
-.note-pi-extension-name {
-  color: var(--text-normal);
-  font-size: var(--font-ui-small);
   font-weight: 600;
 }
-.note-pi-extension-capabilities,
-.note-pi-extension-empty {
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
+.note-pi-extension-table td:first-child {
+  width: 30%;
+  color: var(--text-normal);
+  font-weight: 600;
 }
-.note-pi-extension-manager .setting-item {
-  border-top-color: var(--background-modifier-border);
+.note-pi-extension-table td:last-child {
+  color: var(--text-muted);
 }
 .note-pi-icon-button {
   display: inline-flex;

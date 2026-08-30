@@ -7,7 +7,6 @@
  *   <agentDir>/extensions/*.ts|*.js            -> load directly
  *   <agentDir>/extensions/* /index.ts|index.js -> load subdirectory entry
  *   <agentDir>/extensions/* /package.json      -> "pi.extensions" declared paths
- *   configured extension file/directory sources -> load directly
  *
  * Discovery never recurses beyond one level and never reads global Pi
  * locations. Modules load through jiti with Note Pi's bundled typebox and
@@ -148,37 +147,29 @@ export function discoverExtensionPaths(extensionsDir) {
   return discovered;
 }
 
-/**
- * Resolve Pi-style explicit extension sources. A source can name an extension
- * module, a package directory (index or `pi.extensions`), or a directory of
- * extensions. The plugin resolves and validates these paths before they reach
- * this loader, so this function deliberately does not expand globs or access
- * global Pi locations.
- */
-export function discoverConfiguredExtensionPaths(extensionPaths = []) {
-  const discovered = [];
-  for (const extensionPath of extensionPaths) {
-    if (typeof extensionPath !== "string" || !fs.existsSync(extensionPath)) continue;
-    let stat;
+function createExtension(extensionPath, extensionsDir) {
+  const fileName = path.basename(extensionPath);
+  const entryDir = path.dirname(extensionPath);
+  const fallbackName = /^index\.[tj]s$/i.test(fileName) ? path.basename(entryDir) : path.parse(fileName).name;
+  let metadata = { name: fallbackName, description: "Local extension" };
+  for (let directory = entryDir; directory.startsWith(extensionsDir); directory = path.dirname(directory)) {
     try {
-      stat = fs.statSync(extensionPath);
+      const manifest = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
+      metadata = {
+        name: typeof manifest?.name === "string" && manifest.name.trim() ? manifest.name.trim() : fallbackName,
+        description: typeof manifest?.description === "string" && manifest.description.trim()
+          ? manifest.description.trim()
+          : "Local extension"
+      };
+      break;
     } catch {
-      continue;
+      // A manifest is optional; continue toward the extension package root.
     }
-    if (stat.isFile() && isExtensionFile(extensionPath)) {
-      discovered.push(extensionPath);
-      continue;
-    }
-    if (!stat.isDirectory()) continue;
-    const entries = resolveExtensionEntries(extensionPath);
-    discovered.push(...(entries.length ? entries : discoverExtensionPaths(extensionPath)));
+    if (directory === extensionsDir) break;
   }
-  return discovered;
-}
-
-function createExtension(extensionPath) {
   return {
     path: extensionPath,
+    ...metadata,
     handlers: new Map(),
     tools: new Map(),
     commands: new Map()
@@ -220,12 +211,9 @@ function createExtensionApi(extension, host) {
  * `jitiPath` must point at the vendored jiti entry (runtime/jiti/lib/jiti.cjs
  * in the packaged plugin, node_modules/jiti/lib/jiti.cjs in tests).
  */
-export async function loadNotePiExtensions(agentDir, host = {}, jitiPath, configuredExtensionPaths = []) {
+export async function loadNotePiExtensions(agentDir, host = {}, jitiPath) {
   const extensionsDir = path.join(agentDir, "extensions");
-  const paths = [...new Set([
-    ...discoverExtensionPaths(extensionsDir),
-    ...discoverConfiguredExtensionPaths(configuredExtensionPaths)
-  ])];
+  const paths = discoverExtensionPaths(extensionsDir);
   if (!paths.length) return new ExtensionRegistry([], [], host);
   if (!jitiPath || !fs.existsSync(jitiPath)) {
     return new ExtensionRegistry([], [{ path: extensionsDir, error: "Bundled jiti runtime is missing; extensions cannot load." }], host);
@@ -245,7 +233,7 @@ export async function loadNotePiExtensions(agentDir, host = {}, jitiPath, config
         errors.push({ path: extensionPath, error: "Extension does not export a factory function." });
         continue;
       }
-      const extension = createExtension(extensionPath);
+      const extension = createExtension(extensionPath, extensionsDir);
       await factory(createExtensionApi(extension, host));
       extensions.push(extension);
     } catch (error) {
@@ -275,6 +263,8 @@ export class ExtensionRegistry {
     return {
       extensions: this.extensions.map((extension) => ({
         path: extension.path,
+        name: extension.name,
+        description: extension.description,
         tools: [...extension.tools.keys()],
         commands: [...extension.commands.keys()]
       })),

@@ -75,7 +75,7 @@ export class AgentController {
   get agent() { return this.runtime.agent; }
   set agent(agent) { this.runtime.agent = agent; }
 
-  async applyPluginConfiguration({ providerId = "google", credentials = {}, vaultPath, agentDir, extensionPaths = /** @type {string[]} */ ([]), enabledTools = ["read"], jitiPath }) {
+  async applyPluginConfiguration({ providerId = "google", credentials = {}, vaultPath, agentDir, enabledTools = ["read"], jitiPath }) {
     if (!providers.has(providerId)) throw new Error(`Unsupported provider: ${providerId}`);
     this.providerId = providerId;
     this.credentialStore = new PiCredentialStore(credentials);
@@ -89,7 +89,6 @@ export class AgentController {
     this.modelId = provider.defaultModel;
     this.vaultPath = vaultPath;
     this.agentDir = agentDir;
-    this.extensionPaths = extensionPaths;
     this.enabledTools = enabledTools;
     this.jitiPath = jitiPath;
     await this.extensionRegistry.emit({ type: "session_shutdown" });
@@ -213,7 +212,7 @@ export class AgentController {
           getAllTools: () => this.agent?.tools ?? [...this.nativeTools(), ...this.extensionRegistry.agentTools()],
           getActiveTools: () => this.agent?.tools ?? [...this.nativeTools(), ...this.extensionRegistry.agentTools()],
           getCommands: () => [...this.extensionRegistry.commands().values()].map(({ name, description }) => ({ name, description }))
-        }, this.jitiPath, this.extensionPaths)
+        }, this.jitiPath)
       : new ExtensionRegistry();
     if (!this.extensionRegistry.isEmpty()) {
       this.emit({ type: "session.extensions", snapshot: this.snapshot() });
