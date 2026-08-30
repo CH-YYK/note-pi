@@ -223,6 +223,18 @@
   min-width: 0;
   overflow-y: auto;
   padding: 16px 18px 28px;
+  /* Obsidian disables text selection app-wide; opt the conversation back in
+     so messages can be selected and copied. */
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Keep interactive transcript controls from becoming selectable text. */
+.note-pi-timeline,
+.note-pi-empty-hints,
+.note-pi-copy-button {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .note-pi-timestamp {
