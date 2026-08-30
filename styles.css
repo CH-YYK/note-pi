@@ -322,7 +322,10 @@
   padding: 2px 0;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
-  word-break: break-all;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
 }
 .note-pi-activity-link {
   color: var(--link-color, var(--interactive-accent));

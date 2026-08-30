@@ -58,6 +58,7 @@ export class ObsidianAgentView extends ItemView {
   private contextRowEl?: HTMLElement;
   private lastFocusedNotePath?: string;
   private seededContextSessions = new Set<string>();
+  private thinkingText = "";
 
   constructor(leaf: WorkspaceLeaf, private harness: HarnessClient, private readonly openSettings: () => void, private readonly contextPrefs?: ContextNotePrefs) {
     super(leaf);
@@ -75,8 +76,11 @@ export class ObsidianAgentView extends ItemView {
         this.snapshot = event.snapshot;
         this.render();
       }
-      if (event.type === "activity.thinking" && event.delta) this.addActivity({ key: "thinking", label: "Thinking", status: "working" });
+      if (event.type === "activity.thinking" && event.delta) this.addThinkingDelta(event.delta);
       if (event.type === "activity.tool" && event.activity) {
+        // A tool starting means the model finished reasoning for now; close
+        // the Thinking item so the next reasoning round gets its own entry.
+        this.finishThinking();
         const { prefix, emphasis } = this.activityLabelParts(event.activity.name, event.activity.detail);
         this.addActivity({ key: `tool:${event.activity.name}`, label: prefix, emphasis, status: event.activity.status, detail: event.activity.detail });
       }
@@ -440,6 +444,40 @@ export class ObsidianAgentView extends ItemView {
     }
   }
 
+  // --- Thinking activity -------------------------------------------------------
+
+  /**
+   * Append a streamed thinking delta to the turn's Thinking activity item.
+   * The accumulated text becomes the item's expandable detail, and updates
+   * live while the detail is open so the reasoning progress stays visible.
+   */
+  private addThinkingDelta(delta: string) {
+    const timeline = this.currentTimeline();
+    const items = [...timeline.querySelectorAll<HTMLElement>(".note-pi-activity")];
+    let item = items.find((el) => el.dataset.key === "thinking" && el.dataset.state === "working");
+    if (!item) {
+      this.addActivity({ key: "thinking", label: "Thinking", status: "working" });
+      item = [...timeline.querySelectorAll<HTMLElement>(".note-pi-activity")].find((el) => el.dataset.key === "thinking" && el.dataset.state === "working");
+    }
+    if (!item) return;
+    this.thinkingText += delta;
+    item.dataset.detail = this.thinkingText;
+    const detail = item.querySelector(".note-pi-activity-detail");
+    if (detail) {
+      detail.textContent = this.thinkingText;
+      this.scrollTranscriptIfFollowing();
+    }
+  }
+
+  /** Close the working Thinking item; the next delta starts a fresh one. */
+  private finishThinking() {
+    if (this.turnTimelineEl) {
+      const item = [...this.turnTimelineEl.querySelectorAll<HTMLElement>(".note-pi-activity")].find((el) => el.dataset.key === "thinking" && el.dataset.state === "working");
+      if (item) this.finishActivity(item, "completed");
+    }
+    this.thinkingText = "";
+  }
+
   private completeWorkingActivities() {
     if (!this.turnTimelineEl) return;
     for (const item of Array.from(this.turnTimelineEl.querySelectorAll<HTMLElement>(".note-pi-activity"))) {
@@ -606,6 +644,7 @@ export class ObsidianAgentView extends ItemView {
     const prompt = this.composerEl.value.trim();
     if (!prompt || this.isStreaming) return;
     this.setStreaming(true);
+    this.thinkingText = "";
     this.composerEl.value = "";
     this.autoGrowComposer();
     this.addMessage("user", prompt, new Date());
@@ -621,6 +660,8 @@ export class ObsidianAgentView extends ItemView {
       const result = await this.harness.submit(
         prompt,
         (delta) => {
+          // The first answer token ends the reasoning phase.
+          if (!this.streamMarkdown) this.finishThinking();
           this.streamMarkdown += delta;
           this.scheduleStreamRender();
         },

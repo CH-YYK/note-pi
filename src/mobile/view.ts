@@ -35,6 +35,9 @@ export class MobileAgentView extends ItemView {
   private streamRenderTimer?: number;
   private renderedComponents: Component[] = [];
   private titleMetaEl?: HTMLElement;
+  private turnTimelineEl?: HTMLElement;
+  private thinkingItemEl?: HTMLElement;
+  private thinkingText = "";
 
   constructor(leaf: WorkspaceLeaf, private readonly harness: HarnessClient, private readonly openSettings: () => void) {
     super(leaf);
@@ -51,8 +54,9 @@ export class MobileAgentView extends ItemView {
         this.snapshot = event.snapshot;
         this.render();
       }
-      if (event.type === "activity.thinking" && event.delta) this.addActivity({ key: "thinking", label: "Thinking", status: "working" });
+      if (event.type === "activity.thinking" && event.delta) this.addThinkingDelta(event.delta);
       if (event.type === "activity.tool" && event.activity) {
+        this.finishThinking();
         this.addActivity({
           key: `tool:${event.activity.name}`,
           label: event.activity.detail ? `${event.activity.name}: ${event.activity.detail.split("/").pop()}` : `Using tool: ${event.activity.name}`,
@@ -161,6 +165,7 @@ export class MobileAgentView extends ItemView {
     if (role === "user") {
       const card = this.transcriptEl.createDiv({ cls: "note-pi-user-card" });
       card.createDiv({ cls: "note-pi-user-text", text });
+      this.turnTimelineEl = undefined;
       this.scrollToBottom();
       return undefined;
     }
@@ -171,8 +176,16 @@ export class MobileAgentView extends ItemView {
     return body;
   }
 
+  /** Activities for the current turn collect into one timeline group. */
+  private currentTimeline(): HTMLElement {
+    if (!this.turnTimelineEl || !this.turnTimelineEl.isConnected) {
+      this.turnTimelineEl = this.transcriptEl.createDiv({ cls: "note-pi-timeline", attr: { "aria-live": "polite" } });
+    }
+    return this.turnTimelineEl;
+  }
+
   private addActivity(activity: { key: string; label: string; status: string; detail?: string }) {
-    const timeline = this.transcriptEl.createDiv({ cls: "note-pi-timeline", attr: { "aria-live": "polite" } });
+    const timeline = this.currentTimeline();
     const item = timeline.createDiv({ cls: `note-pi-activity note-pi-activity-${activity.status}` });
     item.createSpan({ cls: "note-pi-activity-dot" });
     item.createSpan({ cls: "note-pi-activity-label", text: activity.label });
@@ -181,6 +194,35 @@ export class MobileAgentView extends ItemView {
       item.createDiv({ cls: "note-pi-activity-detail", text: activity.detail });
     }
     this.scrollToBottom();
+  }
+
+  /**
+   * Stream thinking into a single timeline item whose detail stays open, so
+   * the reasoning progress is visible as it arrives.
+   */
+  private addThinkingDelta(delta: string) {
+    if (!this.thinkingItemEl || !this.thinkingItemEl.isConnected) {
+      const item = this.currentTimeline().createDiv({ cls: "note-pi-activity note-pi-activity-working note-pi-activity-open" });
+      item.createSpan({ cls: "note-pi-activity-dot" });
+      item.createSpan({ cls: "note-pi-activity-label", text: "Thinking" });
+      item.createDiv({ cls: "note-pi-activity-detail" });
+      this.thinkingItemEl = item;
+      this.thinkingText = "";
+    }
+    this.thinkingText += delta;
+    const detail = this.thinkingItemEl.querySelector(".note-pi-activity-detail");
+    if (detail) detail.textContent = this.thinkingText;
+    this.scrollToBottom();
+  }
+
+  /** Close the working Thinking item; the next delta starts a fresh one. */
+  private finishThinking() {
+    if (this.thinkingItemEl) {
+      this.thinkingItemEl.classList.remove("note-pi-activity-working");
+      this.thinkingItemEl.classList.add("note-pi-activity-completed");
+      this.thinkingItemEl = undefined;
+    }
+    this.thinkingText = "";
   }
 
   private renderComposer() {
@@ -247,6 +289,8 @@ export class MobileAgentView extends ItemView {
     const prompt = this.composerEl.value.trim();
     if (!prompt || this.isStreaming) return;
     this.setStreaming(true);
+    this.thinkingItemEl = undefined;
+    this.thinkingText = "";
     this.composerEl.value = "";
     this.addMessage("user", prompt);
     const body = this.addMessage("assistant", "");
@@ -256,6 +300,8 @@ export class MobileAgentView extends ItemView {
     body.addClass("note-pi-streaming");
     try {
       const result = await this.harness.submit(prompt, (delta) => {
+        // The first answer token ends the reasoning phase.
+        if (!this.streamMarkdown) this.finishThinking();
         this.streamMarkdown += delta;
         this.scheduleStreamRender();
       });
@@ -268,6 +314,7 @@ export class MobileAgentView extends ItemView {
       body.addClass("note-pi-error");
       body.setText(error instanceof Error ? error.message : "Chat failed. Fix provider setup and try again.");
     } finally {
+      this.finishThinking();
       this.streamBody = undefined;
       this.streamMarkdown = "";
       this.setStreaming(false);
