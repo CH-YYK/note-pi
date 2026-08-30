@@ -487,7 +487,9 @@ export class ObsidianAgentView extends ItemView {
   }
 
   private renderContextChips() {
-    if (!this.contextRowEl || !this.contextRowEl.isConnected) return;
+    // The row may not be attached yet during the view's first render; paint it
+    // anyway so the chips are in place once the composer reaches the DOM.
+    if (!this.contextRowEl) return;
     this.contextRowEl.empty();
     for (const note of this.contextNotes) {
       const chip = this.contextRowEl.createDiv({ cls: "note-pi-context-chip" });
