@@ -118,7 +118,7 @@ export default class NotePiPlugin extends Plugin {
 
   private async loadStoredSettings(): Promise<Partial<NotePiSettings>> {
     const saved: unknown = await this.loadData();
-    return saved && typeof saved === "object" ? saved as Partial<NotePiSettings> : {};
+    return saved && typeof saved === "object" ? saved : {};
   }
 
   private async configureHarness() {
