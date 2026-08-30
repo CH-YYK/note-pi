@@ -2,13 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.5.3] - 2026-08-30
+## [0.5.4] - 2026-08-30
 
 ### Fixed
 
 - Preserve Note Pi leaves when the plugin unloads, so user-chosen pane placement survives reloads.
 - Use supported Obsidian settings and style APIs, and declare the 1.13.0 minimum app version they require.
 - Build a minified desktop bundle (under Obsidian Sync's 5 MB limit) and use Node 22's built-in fetch instead of a direct `node-fetch` dependency.
+- Adopt Obsidian's searchable declarative settings API and refresh settings with `update()`.
 
 ### Added
 
