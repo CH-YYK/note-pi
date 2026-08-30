@@ -7,8 +7,8 @@ import { ObsidianAgentView, VIEW_TYPE_NOTE_PI } from "./view";
 
 type HarnessEvent = { type: string; requestId: string; node?: string; pid?: number };
 export interface NotePiCredential { type: "api_key"; key?: string; [key: string]: unknown; }
-export interface NotePiSettings { providerId: string; agentDir: string; extensions: string[]; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
-const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", agentDir: "", extensions: [], credentials: {}, googleApiKey: "" };
+export interface NotePiSettings { providerId: string; agentDir: string; autoContextNote: boolean; extensions: string[]; credentials: Record<string, NotePiCredential>; googleApiKey?: string; }
+const DEFAULT_SETTINGS: NotePiSettings = { providerId: "google", agentDir: "", autoContextNote: true, extensions: [], credentials: {}, googleApiKey: "" };
 
 export default class NotePiPlugin extends Plugin {
   private controller?: AgentController;
@@ -24,7 +24,10 @@ export default class NotePiPlugin extends Plugin {
     this.settings = this.normalizeSettings(await this.loadData());
     await this.saveData(this.settings);
     await this.configureHarness();
-    this.registerView(VIEW_TYPE_NOTE_PI, (leaf) => new ObsidianAgentView(leaf, this.startHarness(), () => this.openSettings()));
+    this.registerView(VIEW_TYPE_NOTE_PI, (leaf) => new ObsidianAgentView(leaf, this.startHarness(), () => this.openSettings(), {
+      autoContextNote: () => this.settings.autoContextNote,
+      setAutoContextNote: (enabled) => this.setAutoContextNote(enabled)
+    }));
     // A leaf restored from the workspace layout can be created through a
     // previous plugin instance's registration, binding it to a dead harness
     // (default provider, empty sessions). Force recreation so every view
@@ -46,21 +49,14 @@ export default class NotePiPlugin extends Plugin {
   }
 
   providerOptions() { return AUTH_PROVIDERS; }
-  selectedProvider() { return AUTH_PROVIDERS.find((provider) => provider.id === this.settings.providerId) ?? AUTH_PROVIDERS[0]; }
-  providerStatus() { return this.startHarness().providerState(this.settings.providerId); }
+  providerStatus(providerId = this.settings.providerId) { return this.startHarness().providerState(providerId); }
   extensionStatus() {
     const snapshot = this.startHarness().snapshot();
     return { extensions: snapshot.extensions, errors: snapshot.extensionErrors };
   }
 
-  async saveProvider(providerId: string) {
-    this.settings.providerId = providerId;
-    await this.saveData(this.settings);
-    await this.configureHarness();
-  }
-
-  async saveApiKey(apiKey: string) {
-    this.settings.credentials = await this.startHarness().loginWithApiKey(this.settings.providerId, apiKey);
+  async saveApiKey(apiKey: string, providerId = this.settings.providerId) {
+    this.settings.credentials = await this.startHarness().loginWithApiKey(providerId, apiKey);
     await this.saveData(this.settings);
   }
 
@@ -69,11 +65,21 @@ export default class NotePiPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
+  testProvider(providerId: string) {
+    return this.startHarness().testProviderConnection(providerId);
+  }
+
   defaultAgentDir() { return "_pi/agent"; }
   async saveAgentDir(agentDir: string) {
     this.settings.agentDir = this.normalizeAgentDir(agentDir);
     await this.saveData(this.settings);
     await this.configureHarness();
+  }
+
+  autoContextNote() { return this.settings.autoContextNote; }
+  async setAutoContextNote(enabled: boolean) {
+    this.settings.autoContextNote = enabled;
+    await this.saveData(this.settings);
   }
 
   async saveExtensions(extensionPaths: string[]) {
@@ -117,6 +123,10 @@ export default class NotePiPlugin extends Plugin {
     const { modelId: _legacyModelId, ...savedConfiguration } = (saved ?? {}) as Partial<NotePiSettings> & { modelId?: string };
     const credentials = { ...(savedConfiguration.credentials ?? {}) };
     if (savedConfiguration.googleApiKey?.trim() && !credentials.google) credentials.google = { type: "api_key", key: savedConfiguration.googleApiKey.trim() };
+    // Drop credentials for providers that no longer exist in the catalog.
+    for (const id of Object.keys(credentials)) {
+      if (!AUTH_PROVIDERS.some((provider) => provider.id === id)) delete credentials[id];
+    }
     const providerId = AUTH_PROVIDERS.some((provider) => provider.id === savedConfiguration.providerId) ? savedConfiguration.providerId ?? "google" : "google";
     const agentDir = this.normalizeAgentDir(savedConfiguration.agentDir === ".pi/agent" ? "" : savedConfiguration.agentDir ?? "");
     const extensions = this.normalizeExtensionPaths(savedConfiguration.extensions ?? [], false);

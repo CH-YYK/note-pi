@@ -5,7 +5,6 @@ import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
-import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { AUTH_PROVIDERS } from "../shared/providers.mjs";
 import { ExtensionRegistry, loadNotePiExtensions } from "./extensions.mjs";
@@ -15,7 +14,14 @@ export { nodeBackedFetch } from "./pi-agent-runtime.mjs";
 export { AUTH_PROVIDERS } from "../shared/providers.mjs";
 
 const providers = new Map(AUTH_PROVIDERS.map((provider) => [provider.id, provider]));
-const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, kimiCodingProvider, moonshotaiProvider, openrouterProvider];
+const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, kimiCodingProvider, openrouterProvider];
+
+/**
+ * Chat model references outside the catalog are composite: `${providerId}/${modelId}`.
+ * Bare ids (e.g. OpenRouter's "openai/gpt-4o-mini") stay valid because a prefix
+ * only counts as a provider when it is a known provider whose catalog contains
+ * the remainder.
+ */
 
 const CONTEXT_BLOCK_HEADER = "The user attached these vault notes as context for this request:";
 const CONTEXT_BLOCK_RE = /^The user attached these vault notes as context for this request:\n(?:- [^\n]*\n)+\n?/;
@@ -75,7 +81,11 @@ export class AgentController {
     this.credentialStore = new PiCredentialStore(credentials);
     this.models = createModels({ credentials: this.credentialStore });
     for (const factory of providerFactories) this.models.setProvider(factory());
-    const provider = providers.get(providerId);
+    // The requested provider is only a preference: chat follows the providers
+    // that actually have keys, so key management never breaks the chat view.
+    const configured = this.configuredProviders();
+    if (!configured.includes(this.providerId) && configured.length) this.providerId = configured[0];
+    const provider = providers.get(this.providerId);
     this.modelId = provider.defaultModel;
     this.vaultPath = vaultPath;
     this.agentDir = agentDir;
@@ -146,7 +156,7 @@ export class AgentController {
       title,
       createdAt: existing?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
-      modelId: this.modelId,
+      modelId: `${this.providerId}/${this.modelId}`,
       messages
     };
     try {
@@ -175,7 +185,13 @@ export class AgentController {
     if (!session) throw new Error(`Unknown session: ${id}`);
     await this.persistActiveSession();
     this.activeSessionId = id;
-    if (session.modelId && this.models?.getModel(this.providerId, session.modelId)) this.modelId = session.modelId;
+    if (session.modelId && this.models) {
+      const ref = this.parseModelRef(session.modelId);
+      if (this.models.getModel(ref.providerId, ref.modelId)) {
+        this.providerId = ref.providerId;
+        this.modelId = ref.modelId;
+      }
+    }
     this.agent = undefined;
     this.emit({ type: "session.state", snapshot: this.snapshot() });
   }
@@ -211,6 +227,45 @@ export class AgentController {
     return "configured";
   }
 
+  /** Providers with a usable key, in catalog order. */
+  configuredProviders() {
+    return AUTH_PROVIDERS.filter((provider) => this.providerState(provider.id) === "configured").map((provider) => provider.id);
+  }
+
+  /** Chat is available when any provider has a key. */
+  chatState() {
+    return this.configuredProviders().length ? "configured" : "missing";
+  }
+
+  /** All chat models across configured providers, ids in composite form. */
+  chatModels() {
+    if (!this.models) return [];
+    const entries = [];
+    for (const providerId of this.configuredProviders()) {
+      const provider = providers.get(providerId);
+      for (const model of this.models.getModels(providerId)) {
+        entries.push({ id: `${providerId}/${model.id}`, label: model.name ?? model.id, provider: provider.label });
+      }
+    }
+    return entries;
+  }
+
+  /**
+   * Resolve a possibly-composite model reference (`provider/model`) against
+   * the catalog. A prefix only counts as a provider when it is a known
+   * provider whose catalog contains the remainder, so bare ids like
+   * OpenRouter's "openai/gpt-4o-mini" keep working for the current provider.
+   */
+  parseModelRef(ref) {
+    const slash = ref.indexOf("/");
+    if (slash !== -1) {
+      const providerId = ref.slice(0, slash);
+      const modelId = ref.slice(slash + 1);
+      if (providers.has(providerId) && this.models?.getModel(providerId, modelId)) return { providerId, modelId };
+    }
+    return { providerId: this.providerId, modelId: ref };
+  }
+
   modelsForProvider(providerId = this.providerId) {
     this.assertProvider(providerId);
     return this.models.getModels(providerId).map((model) => ({ id: model.id, label: model.name ?? model.id }));
@@ -228,9 +283,49 @@ export class AgentController {
   async logout(providerId = this.providerId) {
     this.assertProvider(providerId);
     await this.models.logout(providerId);
+    // If the session model belonged to the removed provider, fall back to
+    // another configured provider so chat keeps working.
+    if (providerId === this.providerId) {
+      const remaining = this.configuredProviders();
+      if (remaining.length) {
+        this.providerId = remaining[0];
+        this.modelId = providers.get(remaining[0]).defaultModel;
+      }
+    }
     this.agent = undefined;
     this.emit({ type: "session.state", snapshot: this.snapshot() });
     return { ...this.credentialStore.credentials };
+  }
+
+  /**
+   * Connection probe for the settings panel: run a minimal one-word turn
+   * against the provider with its stored key. Resolves with the responding
+   * model id and round-trip latency; rejects with the provider's error.
+   */
+  async testProviderConnection(providerId) {
+    this.assertProvider(providerId);
+    if (this.providerState(providerId) !== "configured") throw new Error("No API key saved for this provider.");
+    const provider = providers.get(providerId);
+    const model = this.models.getModel(providerId, provider.defaultModel) ?? this.models.getModels(providerId)[0];
+    if (!model) throw new Error(`No model available for ${provider.label}.`);
+    const context = { messages: [{ role: "user", content: "Reply with the single word: ok", timestamp: Date.now() }] };
+    const abort = new AbortController();
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        abort.abort();
+        reject(new Error("Connection timed out after 30s."));
+      }, 30000);
+    });
+    const startedAt = Date.now();
+    try {
+      const stream = this.models.streamSimple(model, context, { fetch: nodeBackedFetch, signal: abort.signal });
+      const message = await Promise.race([stream.result(), timeout]);
+      if (message.stopReason === "error" || message.stopReason === "aborted") throw new Error(message.errorMessage || "Connection failed.");
+      return { model: message.responseModel ?? model.id, latencyMs: Date.now() - startedAt };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async health(requestId) {
@@ -311,9 +406,9 @@ export class AgentController {
     const extensionSummary = this.extensionRegistry.summary();
     return {
       providerId: this.providerId,
-      providerState: this.providerState(),
-      modelId: this.modelId,
-      models: this.models ? this.modelsForProvider() : [],
+      providerState: this.chatState(),
+      modelId: this.modelId ? `${this.providerId}/${this.modelId}` : undefined,
+      models: this.chatModels(),
       transcript: this.transcript(),
       usageTokens: this.usageTokens(),
       sessions: this.sessions.map((session) => ({ id: session.id, title: session.title, updatedAt: session.updatedAt, messageCount: session.messages.length })),
@@ -331,11 +426,14 @@ export class AgentController {
     }
     return 0;
   }
-  async setSessionModel(modelId) {
-    this.assertProvider(this.providerId);
-    const model = this.models.getModel(this.providerId, modelId);
-    if (!model) throw new Error(`Bundled chat model is unavailable: ${modelId}`);
+  async setSessionModel(modelRef) {
+    const ref = this.parseModelRef(modelRef);
+    this.assertProvider(ref.providerId);
+    if (this.providerState(ref.providerId) !== "configured") throw new Error(`Provider "${ref.providerId}" has no API key. Add one in Note Pi settings.`);
+    const model = this.models.getModel(ref.providerId, ref.modelId);
+    if (!model) throw new Error(`Bundled chat model is unavailable: ${modelRef}`);
     const transcript = this.agent?.state.messages ?? [];
+    this.providerId = ref.providerId;
     this.modelId = model.id;
     this.agent = undefined;
     if (transcript.length) this.createAgent(transcript);

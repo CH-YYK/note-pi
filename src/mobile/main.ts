@@ -27,9 +27,13 @@ export default class NotePiMobilePlugin extends Plugin {
 
   async onload() {
     const saved = await this.loadData();
+    const credentials = { ...(saved?.credentials ?? {}) };
+    for (const id of Object.keys(credentials)) {
+      if (!MOBILE_PROVIDERS.some((provider) => provider.id === id)) delete credentials[id];
+    }
     this.settings = {
       providerId: MOBILE_PROVIDERS.some((provider) => provider.id === saved?.providerId) ? saved.providerId : DEFAULT_SETTINGS.providerId,
-      credentials: saved?.credentials ?? {}
+      credentials
     };
     await this.configureHarness();
     this.registerView(VIEW_TYPE_NOTE_PI_MOBILE, (leaf) => new MobileAgentView(leaf, this.startController(), () => this.openSettings()));
@@ -46,22 +50,20 @@ export default class NotePiMobilePlugin extends Plugin {
 
   providerOptions() { return MOBILE_PROVIDERS; }
   selectedProvider() { return MOBILE_PROVIDERS.find((provider) => provider.id === this.settings.providerId) ?? MOBILE_PROVIDERS[0]; }
-  providerStatus() { return this.startController().providerState(this.settings.providerId); }
+  providerStatus(providerId = this.settings.providerId) { return this.startController().providerState(providerId); }
 
-  async saveProvider(providerId: string) {
-    this.settings.providerId = providerId;
-    await this.saveSettings();
-    await this.configureHarness();
-  }
-
-  async saveApiKey(apiKey: string) {
-    this.settings.credentials = await this.startController().loginWithApiKey(this.settings.providerId, apiKey);
+  async saveApiKey(apiKey: string, providerId = this.settings.providerId) {
+    this.settings.credentials = await this.startController().loginWithApiKey(providerId, apiKey);
     await this.saveSettings();
   }
 
   async logoutProvider(providerId: string) {
     this.settings.credentials = await this.startController().logout(providerId);
     await this.saveSettings();
+  }
+
+  testProvider(providerId: string) {
+    return this.startController().testProviderConnection(providerId);
   }
 
   openSettings() {

@@ -69,6 +69,17 @@ test("submit fails visibly when no provider is configured", async () => {
   await assert.rejects(() => controller.submit("hi"), /No model provider is configured/);
 });
 
+test("connection probe short-circuits on the injected stream and rejects without a key", async () => {
+  const controller = fakeController([{ text: "ok", chunks: 1 }]);
+  await controller.applyPluginConfiguration();
+  const result = await controller.testProviderConnection("google");
+  assert.equal(result.model, "injected-test-stream");
+
+  const bare = new MobileAgentController({ storage: memoryStorage() });
+  await bare.applyPluginConfiguration();
+  await assert.rejects(() => bare.testProviderConnection("google"), /No API key saved/);
+});
+
 test("cancelling a streaming turn aborts the agent loop", async () => {
   const longText = "word ".repeat(200).trim();
   const controller = fakeController([{ text: longText, chunks: 40, chunkDelayMs: 5 }]);

@@ -1,4 +1,4 @@
-import { Component, ItemView, MarkdownRenderer, Notice, WorkspaceLeaf, setIcon } from "obsidian";
+import { Component, ItemView, MarkdownRenderer, MarkdownView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import type { HarnessClient, HarnessSessionMeta, HarnessSnapshot } from "./harness/client";
 
 export const VIEW_TYPE_NOTE_PI = "note-pi-view";
@@ -7,6 +7,12 @@ export const VIEW_TYPE_NOTE_PI = "note-pi-view";
 const STREAM_RENDER_INTERVAL_MS = 120;
 
 type RenderedMarkdown = { el: HTMLElement; component?: Component; source: string };
+
+/** Host-supplied preference for attaching the focused note to every turn. */
+export interface ContextNotePrefs {
+  autoContextNote(): boolean;
+  setAutoContextNote(enabled: boolean): Promise<void> | void;
+}
 
 function formatClock(date: Date): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -51,8 +57,9 @@ export class ObsidianAgentView extends ItemView {
   private historyButtonEl?: HTMLButtonElement;
   private contextNotes: { path: string; name: string }[] = [];
   private contextRowEl?: HTMLElement;
+  private lastFocusedNotePath?: string;
 
-  constructor(leaf: WorkspaceLeaf, private harness: HarnessClient, private readonly openSettings: () => void) {
+  constructor(leaf: WorkspaceLeaf, private harness: HarnessClient, private readonly openSettings: () => void, private readonly contextPrefs?: ContextNotePrefs) {
     super(leaf);
     this.snapshot = harness.snapshot();
   }
@@ -80,6 +87,16 @@ export class ObsidianAgentView extends ItemView {
         this.titleNameEl?.setText(this.sessionTitle());
       }
     });
+    // Track the last focused markdown note (the chat view itself never counts)
+    // so the auto-context chip stays put while the composer has focus, and
+    // follows along when the user switches notes.
+    const activeFile = this.app.workspace.getActiveFile();
+    if (activeFile) this.lastFocusedNotePath = activeFile.path;
+    this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
+      const view = leaf?.view;
+      if (view instanceof MarkdownView && view.file) this.lastFocusedNotePath = view.file.path;
+      this.renderContextChips();
+    }));
     this.render();
   }
 
@@ -470,8 +487,15 @@ export class ObsidianAgentView extends ItemView {
   }
 
   private renderContextChips() {
-    if (!this.contextRowEl) return;
+    if (!this.contextRowEl || !this.contextRowEl.isConnected) return;
     this.contextRowEl.empty();
+    const autoFile = this.autoContextFile();
+    if (autoFile) {
+      const chip = this.contextRowEl.createDiv({ cls: "note-pi-context-chip note-pi-context-chip-auto", attr: { title: "Attached automatically from the focused note. Use the Auto toggle to disable." } });
+      chip.createSpan({ cls: "note-pi-context-chip-icon", text: "📄" });
+      chip.createSpan({ text: autoFile.basename });
+      chip.createSpan({ cls: "note-pi-context-chip-badge", text: "auto" });
+    }
     for (const note of this.contextNotes) {
       const chip = this.contextRowEl.createDiv({ cls: "note-pi-context-chip" });
       chip.createSpan({ cls: "note-pi-context-chip-icon", text: "📄" });
@@ -494,10 +518,46 @@ export class ObsidianAgentView extends ItemView {
     setIcon(add.createSpan({ cls: "note-pi-context-add-icon" }), "plus");
     add.createSpan({ text: "Add current note" });
     add.onclick = () => this.addFocusedNoteContext();
+    if (this.contextPrefs) this.renderAutoContextToggle();
+  }
+
+  private renderAutoContextToggle() {
+    const enabled = this.contextPrefs!.autoContextNote();
+    const toggle = this.contextRowEl!.createEl("button", {
+      cls: `note-pi-context-auto${enabled ? " is-on" : ""}`,
+      attr: {
+        "aria-label": "Toggle automatic focused-note context",
+        "aria-pressed": String(enabled),
+        title: enabled ? "Auto-context on: the focused note is attached to every turn. Click to turn off." : "Auto-context off. Click to attach the focused note to every turn."
+      }
+    });
+    setIcon(toggle.createSpan({ cls: "note-pi-context-add-icon" }), "paperclip");
+    toggle.createSpan({ text: enabled ? "Auto on" : "Auto off" });
+    toggle.onclick = async () => {
+      await this.contextPrefs!.setAutoContextNote(!enabled);
+      this.renderContextChips();
+    };
+  }
+
+  /** The note treated as "current": the live active file, or the last focused one. */
+  private focusedNoteFile(): TFile | undefined {
+    const path = this.app.workspace.getActiveFile()?.path ?? this.lastFocusedNotePath;
+    if (!path) return undefined;
+    const file = this.app.vault.getAbstractFileByPath(path);
+    return file instanceof TFile ? file : undefined;
+  }
+
+  /** The focused note to attach automatically, or undefined when disabled/duplicate. */
+  private autoContextFile(): TFile | undefined {
+    if (!this.contextPrefs?.autoContextNote()) return undefined;
+    const file = this.focusedNoteFile();
+    if (!file) return undefined;
+    if (this.contextNotes.some((note) => note.path === file.path)) return undefined;
+    return file;
   }
 
   private addFocusedNoteContext() {
-    const file = this.app.workspace.getActiveFile();
+    const file = this.focusedNoteFile();
     if (!file) {
       new Notice("No focused note to add. Focus a note first.");
       return;
@@ -509,7 +569,22 @@ export class ObsidianAgentView extends ItemView {
 
   private renderModelPicker(parent: HTMLElement) {
     const select = parent.createEl("select", { cls: "dropdown note-pi-model-select", attr: { "aria-label": "Chat model" } });
-    for (const model of this.snapshot.models) select.createEl("option", { value: model.id, text: model.label });
+    // Models arrive from every configured provider; group them under provider
+    // optgroups so switching providers is a single pick in the composer.
+    const grouped = new Map<string, { id: string; label: string }[]>();
+    for (const model of this.snapshot.models) {
+      const group = model.provider ?? "";
+      if (!grouped.has(group)) grouped.set(group, []);
+      grouped.get(group)!.push(model);
+    }
+    for (const [providerLabel, models] of grouped) {
+      if (!providerLabel) {
+        for (const model of models) select.createEl("option", { value: model.id, text: model.label });
+        continue;
+      }
+      const optgroup = select.createEl("optgroup", { attr: { label: providerLabel } });
+      for (const model of models) optgroup.createEl("option", { value: model.id, text: model.label });
+    }
     select.value = this.snapshot.modelId ?? "";
     select.onchange = async () => {
       if (this.isStreaming) {
@@ -565,7 +640,7 @@ export class ObsidianAgentView extends ItemView {
           this.streamMarkdown += delta;
           this.scheduleStreamRender();
         },
-        { contextNotes: this.contextNotes.map((note) => note.path) }
+        { contextNotes: this.turnContextPaths() }
       );
       // Slash-command results and non-streaming providers return text
       // without emitting deltas; render the returned text in that case.
@@ -586,6 +661,14 @@ export class ObsidianAgentView extends ItemView {
       this.setStreaming(false);
       this.composerEl.focus();
     }
+  }
+
+  /** Manually added notes plus the auto-attached focused note, if enabled. */
+  private turnContextPaths(): string[] {
+    const paths = this.contextNotes.map((note) => note.path);
+    const autoFile = this.autoContextFile();
+    if (autoFile) paths.unshift(autoFile.path);
+    return paths;
   }
 
   // --- Markdown rendering ---------------------------------------------------

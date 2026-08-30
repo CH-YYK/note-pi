@@ -220,9 +220,48 @@ export class MobileAgentController {
   async logout(providerId = this.providerId) {
     if (!this.models) throw new Error("No provider catalog is available in this build.");
     await this.models.logout(providerId);
+    if (providerId === this.providerId) {
+      const remaining = Object.keys(this.credentialStore?.credentials ?? {}).filter((id) => this.providerState(id) === "configured");
+      if (remaining.length) {
+        this.providerId = remaining[0];
+        this.modelId = this.models.getModels(remaining[0])[0]?.id;
+      }
+    }
     this.agent = undefined;
     this.emit({ type: "session.state", snapshot: this.snapshot() });
     return { ...this.credentialStore.credentials };
+  }
+
+  /**
+   * Connection probe for the settings panel: run a minimal one-word turn
+   * against the provider with its stored key. Uses the same requestUrl-backed
+   * transport as chat turns. Resolves with the responding model id and
+   * round-trip latency; rejects with the provider's error.
+   */
+  async testProviderConnection(providerId) {
+    if (this.providerState(providerId) !== "configured") throw new Error("No API key saved for this provider.");
+    if (this.injectedStreamFn) return { model: "injected-test-stream", latencyMs: 0 };
+    if (!this.models) throw new Error("No provider catalog is available in this build.");
+    const model = this.models.getModels(providerId)[0];
+    if (!model) throw new Error(`No model available for provider: ${providerId}`);
+    const context = { messages: [{ role: "user", content: "Reply with the single word: ok", timestamp: Date.now() }] };
+    const abort = new AbortController();
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        abort.abort();
+        reject(new Error("Connection timed out after 30s."));
+      }, 30000);
+    });
+    const startedAt = Date.now();
+    try {
+      const stream = this.stream(model, context, { signal: abort.signal });
+      const message = await Promise.race([stream.result(), timeout]);
+      if (message.stopReason === "error" || message.stopReason === "aborted") throw new Error(message.errorMessage || "Connection failed.");
+      return { model: message.responseModel ?? model.id, latencyMs: Date.now() - startedAt };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /* Turn flow. */

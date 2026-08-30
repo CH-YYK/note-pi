@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0.0] - 2026-08-29
+
+### Added
+
+- Chat now works with every configured provider at once: the composer model picker groups all available models by provider, so switching between Kimi Code, Anthropic, OpenRouter, and others is a single pick without revisiting settings.
+- Each saved provider key has a connection test button that probes the provider with a minimal request and reports the responding model and latency inline.
+- The composer automatically attaches the currently focused note as context (on by default), with an Auto toggle in the context row and a matching setting under General. The attached note follows your focus as you switch notes.
+
+### Changed
+
+- Settings split into General and API Provider tabs. The API Provider tab is a pure key manager: a provider dropdown plus key entry up top (works for first-time setup and adding more providers), and an Added keys list below with compact replace, test, and remove actions. Key management no longer changes which provider chats.
+- Saved keys display masked (last four characters) so you can tell at a glance which credential is stored.
+
+### Removed
+
+- The deprecated Moonshot AI provider (Kimi Code remains the Kimi entry). Credentials stored for providers that no longer exist are pruned automatically on load.
+
+### Fixed
+
+- Removing the key of the provider your session is using now falls back to another configured provider instead of breaking chat.
+- Saving the Pi agent directory and toggling focused-note context no longer crash the settings tab.
+
 ## [0.4.0.0] - 2026-08-29
 
 ### Added
