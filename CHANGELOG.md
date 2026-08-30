@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1.0] - 2026-08-30
+
+### Changed
+
+- Extensions are now discovered exclusively from the configured Pi agent directory's `extensions/` folder. The settings tab is a compact inventory with extension name and description columns, while the Pi agent directory remains configured under General.
+- Extension names and descriptions use package metadata when available, so installed packages such as `pi-util-commands` appear with their own description.
+
+### Removed
+
+- The separate extension-source configuration and reload controls. Note Pi no longer loads extension modules from arbitrary vault paths.
+
 ## [0.5.0.0] - 2026-08-29
 
 ### Added
