@@ -1,4 +1,4 @@
-export type HarnessModel = { id: string; label: string };
+export type HarnessModel = { id: string; label: string; provider?: string };
 export type HarnessMessage = { role: "user" | "assistant"; text: string };
 export type HarnessSessionMeta = { id: string; title: string; updatedAt?: number; messageCount: number };
 export type HarnessExtension = { path: string; tools: string[]; commands: string[] };

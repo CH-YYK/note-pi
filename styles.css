@@ -448,6 +448,21 @@
 .note-pi-context-chip-icon {
   font-size: 11px;
 }
+.note-pi-context-chip-auto {
+  border-style: dashed;
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+.note-pi-context-chip-badge {
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 9px;
+  line-height: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
 .note-pi-context-chip-remove {
   display: inline-flex;
   align-items: center;
@@ -484,6 +499,66 @@
 .note-pi-context-add-icon .svg-icon {
   width: 12px;
   height: 12px;
+}
+.note-pi-context-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 99px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+.note-pi-context-auto:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.note-pi-context-auto.is-on {
+  color: var(--text-accent);
+}
+
+/* --- Settings tabs ------------------------------------------------------------ */
+
+.note-pi-settings-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+/* Visuals come from Obsidian's native .vertical-tab-nav-item theme styles;
+   only layout tweaks live here. */
+.note-pi-settings-tab {
+  display: inline-flex;
+  align-items: center;
+}
+.note-pi-settings-empty {
+  color: var(--text-faint);
+  font-size: var(--font-ui-small);
+}
+
+/* Key entry sits as a compact sub-frame beneath the provider selector. */
+.setting-item.note-pi-key-sub {
+  margin: -4px 0 12px 26px;
+  padding: 6px 12px;
+  border-top: none;
+  border-left: 2px solid var(--interactive-accent);
+  border-radius: 0 8px 8px 8px;
+  background: var(--background-secondary);
+}
+.setting-item.note-pi-key-sub .setting-item-info {
+  display: none;
+}
+.setting-item.note-pi-key-sub .setting-item-control {
+  flex-grow: 0;
+}
+.setting-item.note-pi-key-sub input[type="text"],
+.setting-item.note-pi-key-sub input[type="password"] {
+  width: 240px;
+  font-size: var(--font-ui-small);
 }
 .note-pi-composer-box {
   display: flex;

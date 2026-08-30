@@ -80,13 +80,49 @@ test("every advertised provider exposes its default chat model in Pi's catalog",
 test("a session model changes without reapplying plugin configuration", async () => {
   const harness = new EmbeddedHarness();
   await harness.applyPluginConfiguration({
-    providerId: "moonshotai",
-    credentials: { moonshotai: { type: "api_key", key: "test-key" } }
+    providerId: "openrouter",
+    credentials: { openrouter: { type: "api_key", key: "test-key" } }
   });
-  await harness.setSessionModel("kimi-k3");
+  await harness.setSessionModel("openai/gpt-4o-mini");
 
-  assert.equal(harness.modelId, "kimi-k3");
+  assert.equal(harness.modelId, "openai/gpt-4o-mini");
   assert.doesNotThrow(() => harness.createAgent());
+});
+
+test("chat models span every configured provider and selection switches providers", async () => {
+  const harness = new EmbeddedHarness();
+  await harness.applyPluginConfiguration({
+    providerId: "kimi-coding",
+    credentials: {
+      "kimi-coding": { type: "api_key", key: "kimi-key" },
+      anthropic: { type: "api_key", key: "anthropic-key" }
+    }
+  });
+
+  const snapshot = harness.snapshot();
+  assert.equal(snapshot.providerState, "configured");
+  assert.equal(snapshot.modelId, "kimi-coding/k3");
+  assert.ok(snapshot.models.some((model) => model.id === "kimi-coding/k3" && model.provider === "Kimi Code"));
+  assert.ok(snapshot.models.some((model) => model.id.startsWith("anthropic/") && model.provider === "Anthropic"));
+  assert.ok(!snapshot.models.some((model) => model.id.startsWith("google/")), "unconfigured providers stay out of the picker");
+
+  await harness.setSessionModel("anthropic/claude-sonnet-4-5");
+  assert.equal(harness.providerId, "anthropic");
+  assert.equal(harness.modelId, "claude-sonnet-4-5");
+
+  await assert.rejects(() => harness.setSessionModel("google/gemini-3.6-flash"), /no API key/);
+});
+
+test("an unconfigured preferred provider falls back to a configured one", async () => {
+  const harness = new EmbeddedHarness();
+  await harness.applyPluginConfiguration({
+    providerId: "anthropic",
+    credentials: { "kimi-coding": { type: "api_key", key: "kimi-key" } }
+  });
+
+  assert.equal(harness.providerId, "kimi-coding");
+  assert.equal(harness.modelId, "k3");
+  assert.equal(harness.snapshot().providerState, "configured");
 });
 
 test("agent requests use Node-backed fetch instead of Obsidian renderer fetch", async () => {
