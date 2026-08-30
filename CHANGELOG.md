@@ -2,11 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.5.2] - 2026-08-30
 
 ### Fixed
 
 - The automatically included current note can now be toggled off. When auto-context is on, the focused note is added once at the start of each session as a regular context chip that can be removed with its × control, replacing the separate Auto on/off toggle in the composer.
+- Thinking progress is now visible in the chat UI. Reasoning deltas stream into the Thinking activity entry, which expands to show the full text on desktop and stays open inline on mobile; the entry closes when the answer starts streaming or a tool call begins, and each reasoning round gets its own entry.
 
 ## [0.5.1] - 2026-08-30
 
