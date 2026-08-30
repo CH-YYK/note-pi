@@ -44,6 +44,7 @@ const shared = {
   bundle: true,
   platform: "node",
   target: "node22",
+  minify: true,
   sourcemap: true,
   external: ["obsidian"],
   plugins: [rendererNodeImportBridge, vendoredJitiRuntimePlugin],

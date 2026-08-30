@@ -1,8 +1,8 @@
 {
   "id": "note-pi",
   "name": "Note Pi",
-  "version": "0.5.2",
-  "minAppVersion": "1.10.0",
+  "version": "0.5.3",
+  "minAppVersion": "1.13.0",
   "description": "A desktop-only Pi agent chat view for your notes.",
   "author": "Kyle",
   "isDesktopOnly": true

@@ -49,21 +49,21 @@ export class NotePiSettingsTab extends PluginSettingTab {
   constructor(app: App, private readonly plugin: Plugin & ProviderConfigHost) { super(app, plugin); }
 
   private hasGeneralSettings(): boolean {
-    return Boolean(
-      (this.plugin.autoContextNote && this.plugin.setAutoContextNote) ||
-      (this.plugin.defaultAgentDir && this.plugin.saveAgentDir)
+    return (
+      (typeof this.plugin.autoContextNote === "function" && typeof this.plugin.setAutoContextNote === "function") ||
+      (typeof this.plugin.defaultAgentDir === "function" && typeof this.plugin.saveAgentDir === "function")
     );
   }
 
   private hasExtensionSettings(): boolean {
-    return Boolean(this.plugin.extensionStatus);
+    return typeof this.plugin.extensionStatus === "function";
   }
 
   display(): void {
     if (this.activeTab === "general" && !this.hasGeneralSettings()) this.activeTab = this.hasExtensionSettings() ? "extensions" : "providers";
     if (this.activeTab === "extensions" && !this.hasExtensionSettings()) this.activeTab = this.hasGeneralSettings() ? "general" : "providers";
     this.containerEl.empty();
-    this.containerEl.createEl("h2", { text: "Note Pi" });
+    new Setting(this.containerEl).setName("Note Pi").setHeading();
     if (this.hasGeneralSettings() || this.hasExtensionSettings()) this.renderTabBar();
     const content = this.containerEl.createDiv({ cls: "note-pi-settings-content" });
     if (this.activeTab === "general") this.renderGeneralTab(content);

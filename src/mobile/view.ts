@@ -239,8 +239,8 @@ export class MobileAgentView extends ItemView {
       attr: { placeholder: "Ask anything…", rows: "1", "aria-label": "Message Note Pi" }
     });
     this.composerEl.addEventListener("input", () => {
-      this.composerEl.style.height = "auto";
-      this.composerEl.style.height = `${Math.min(this.composerEl.scrollHeight, 160)}px`;
+      this.composerEl.setCssStyles({ height: "auto" });
+      this.composerEl.setCssStyles({ height: `${Math.min(this.composerEl.scrollHeight, 160)}px` });
     });
 
     const bar = box.createDiv({ cls: "note-pi-composer-bar" });

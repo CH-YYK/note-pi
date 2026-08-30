@@ -1,4 +1,4 @@
-import { Plugin, Notice, WorkspaceLeaf } from "obsidian";
+import { Plugin, Notice } from "obsidian";
 import { relative, resolve } from "node:path";
 import { checkPiRuntime } from "./plugin/runtime-compatibility";
 import { ensureVendoredJitiRuntime } from "./plugin/jiti-runtime";
@@ -22,20 +22,15 @@ export default class NotePiPlugin extends Plugin {
       new Notice(`Note Pi disabled: ${runtime.message}`);
       return;
     }
-    this.settings = this.normalizeSettings(await this.loadData());
+    this.settings = this.normalizeSettings(await this.loadStoredSettings());
     await this.saveData(this.settings);
     await this.configureHarness();
     this.registerView(VIEW_TYPE_NOTE_PI, (leaf) => new ObsidianAgentView(leaf, this.startHarness(), () => this.openSettings(), {
       autoContextNote: () => this.settings.autoContextNote
     }));
-    // A leaf restored from the workspace layout can be created through a
-    // previous plugin instance's registration, binding it to a dead harness
-    // (default provider, empty sessions). Force recreation so every view
-    // binds to this instance's controller.
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE_NOTE_PI);
     this.addSettingTab(new NotePiSettingsTab(this.app, this));
-    this.addCommand({ id: "open-chat", name: "Open Note Pi", callback: () => this.activateView() });
-    this.addCommand({ id: "open-settings", name: "Open Note Pi settings", callback: () => this.openSettings() });
+    this.addCommand({ id: "open-chat", name: "Open chat", callback: () => this.activateView() });
+    this.addCommand({ id: "open-settings", name: "Open settings", callback: () => this.openSettings() });
     this.addCommand({ id: "check-harness", name: "Check bundled harness runtime", callback: async () => {
       const event = await this.requestHealth();
       new Notice(`Harness ready, Node ${event.node}.`);
@@ -43,7 +38,6 @@ export default class NotePiPlugin extends Plugin {
   }
 
   onunload() {
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE_NOTE_PI);
     this.controller?.close();
     this.controller = undefined;
   }
@@ -91,7 +85,7 @@ export default class NotePiPlugin extends Plugin {
   async activateView() {
     const leaf = this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: VIEW_TYPE_NOTE_PI, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    void this.app.workspace.revealLeaf(leaf);
   }
 
   private nextRequestId() {
@@ -120,6 +114,11 @@ export default class NotePiPlugin extends Plugin {
     const providerId = AUTH_PROVIDERS.some((provider) => provider.id === savedConfiguration.providerId) ? savedConfiguration.providerId ?? "google" : "google";
     const agentDir = this.normalizeAgentDir(savedConfiguration.agentDir === ".pi/agent" ? "" : savedConfiguration.agentDir ?? "");
     return { ...DEFAULT_SETTINGS, ...savedConfiguration, agentDir, credentials, providerId, googleApiKey: "" };
+  }
+
+  private async loadStoredSettings(): Promise<Partial<NotePiSettings>> {
+    const saved: unknown = await this.loadData();
+    return saved && typeof saved === "object" ? saved as Partial<NotePiSettings> : {};
   }
 
   private async configureHarness() {

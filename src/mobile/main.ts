@@ -1,4 +1,4 @@
-import { Notice, Plugin, requestUrl } from "obsidian";
+import { Plugin, requestUrl } from "obsidian";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { AUTH_PROVIDERS, MOBILE_PROVIDER_IDS } from "../shared/providers.mjs";
 import { NotePiSettingsTab } from "../settings";
@@ -26,7 +26,7 @@ export default class NotePiMobilePlugin extends Plugin {
   settings: MobileSettings = DEFAULT_SETTINGS;
 
   async onload() {
-    const saved = await this.loadData();
+    const saved = await this.loadStoredSettings();
     const credentials = { ...(saved?.credentials ?? {}) };
     for (const id of Object.keys(credentials)) {
       if (!MOBILE_PROVIDERS.some((provider) => provider.id === id)) delete credentials[id];
@@ -38,12 +38,11 @@ export default class NotePiMobilePlugin extends Plugin {
     await this.configureHarness();
     this.registerView(VIEW_TYPE_NOTE_PI_MOBILE, (leaf) => new MobileAgentView(leaf, this.startController(), () => this.openSettings()));
     this.addSettingTab(new NotePiSettingsTab(this.app, this));
-    this.addCommand({ id: "open-chat", name: "Open Note Pi", callback: () => this.activateView() });
-    this.addCommand({ id: "open-settings", name: "Open Note Pi settings", callback: () => this.openSettings() });
+    this.addCommand({ id: "open-chat", name: "Open chat", callback: () => this.activateView() });
+    this.addCommand({ id: "open-settings", name: "Open settings", callback: () => this.openSettings() });
   }
 
   onunload() {
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE_NOTE_PI_MOBILE);
     this.controller?.close();
     this.controller = undefined;
   }
@@ -75,16 +74,16 @@ export default class NotePiMobilePlugin extends Plugin {
   async activateView() {
     const leaf = this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: VIEW_TYPE_NOTE_PI_MOBILE, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    void this.app.workspace.revealLeaf(leaf);
   }
 
   private startController() {
     if (!this.controller) {
       this.controller = new MobileAgentController({
         storage: {
-          read: async () => (await this.loadData())?.mobileSessions,
+          read: async () => (await this.loadStoredSettings()).mobileSessions,
           write: async (value: unknown) => {
-            const data = (await this.loadData()) ?? {};
+            const data = await this.loadStoredSettings();
             data.mobileSessions = value;
             await this.saveData(data);
           }
@@ -107,9 +106,16 @@ export default class NotePiMobilePlugin extends Plugin {
   }
 
   private async saveSettings() {
-    const data = (await this.loadData()) ?? {};
+    const data = await this.loadStoredSettings();
     data.providerId = this.settings.providerId;
     data.credentials = this.settings.credentials;
     await this.saveData(data);
+  }
+
+  private async loadStoredSettings(): Promise<MobileSettings & { mobileSessions?: unknown }> {
+    const saved: unknown = await this.loadData();
+    return saved && typeof saved === "object"
+      ? saved as MobileSettings & { mobileSessions?: unknown }
+      : { ...DEFAULT_SETTINGS };
   }
 }
