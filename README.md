@@ -129,6 +129,14 @@ To try it in Obsidian, install or symlink the built `main.js`, `manifest.json`, 
 
 With the Obsidian CLI enabled, `npm run deploy:testing` builds, copies the artifacts into the shared testing vault, and hot-reloads the plugin in the running app.
 
+## Install with BRAT
+
+1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat) in Obsidian.
+2. Run BRAT's **Add a beta plugin for testing** command.
+3. Enter `CH-YYK/note-pi` and select the latest release.
+
+BRAT installs the release's `main.js`, `manifest.json`, and `styles.css` assets. Note Pi restores its bundled extension runtime on first load, so Pi extensions remain available in a BRAT installation.
+
 Note Pi intentionally supports API keys and tokens only. A Gemini API key can use Google AI Studio free-tier quota when available. Kimi Code (`https://api.kimi.com/coding`) is a distinct Pi provider with its own credential and model catalog.
 
 ## Release notes

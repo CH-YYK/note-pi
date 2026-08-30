@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.5.1.0] - 2026-08-30
+## [0.5.1] - 2026-08-30
 
 ### Changed
 
@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
 ### Removed
 
 - The separate extension-source configuration and reload controls. Note Pi no longer loads extension modules from arbitrary vault paths.
+
+### Fixed
+
+- BRAT installs now restore the bundled TypeScript extension runtime automatically, so extensions work after installation from the GitHub release assets.
 
 ## [0.5.0.0] - 2026-08-29
 

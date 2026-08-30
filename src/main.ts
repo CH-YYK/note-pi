@@ -1,6 +1,7 @@
 import { Plugin, Notice, WorkspaceLeaf } from "obsidian";
 import { relative, resolve } from "node:path";
 import { checkPiRuntime } from "./plugin/runtime-compatibility";
+import { ensureVendoredJitiRuntime } from "./plugin/jiti-runtime";
 import { AUTH_PROVIDERS, AgentController } from "./harness/host.mjs";
 import { NotePiSettingsTab } from "./settings";
 import { ObsidianAgentView, VIEW_TYPE_NOTE_PI } from "./view";
@@ -123,13 +124,14 @@ export default class NotePiPlugin extends Plugin {
   }
 
   private async configureHarness() {
+    const pluginDir = resolve(this.vaultPath(), this.manifest.dir ?? "");
     await this.startHarness().applyPluginConfiguration({
       providerId: this.settings.providerId,
       credentials: this.settings.credentials,
       vaultPath: (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath(),
       agentDir: resolve(this.vaultPath(), this.settings.agentDir),
       enabledTools: ["read"],
-      jitiPath: resolve(this.vaultPath(), this.manifest.dir ?? "", "runtime/jiti/lib/jiti.cjs")
+      jitiPath: await ensureVendoredJitiRuntime(pluginDir)
     });
   }
 

@@ -1,5 +1,28 @@
 import esbuild from "esbuild";
-import { cp, mkdir, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+
+async function readRuntimeFiles(directory, prefix = "") {
+  const files = {};
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const relativePath = join(prefix, entry.name);
+    const absolutePath = join(directory, entry.name);
+    if (entry.isDirectory()) Object.assign(files, await readRuntimeFiles(absolutePath, relativePath));
+    else files[relativePath.replaceAll("\\", "/")] = (await readFile(absolutePath)).toString("base64");
+  }
+  return files;
+}
+
+const vendoredJitiRuntimePlugin = {
+  name: "vendored-jiti-runtime",
+  setup(build) {
+    build.onResolve({ filter: /^note-pi-jiti-runtime$/ }, () => ({ path: "note-pi-jiti-runtime", namespace: "note-pi" }));
+    build.onLoad({ filter: /.*/, namespace: "note-pi" }, async () => ({
+      contents: `export const JITI_RUNTIME_FILES = ${JSON.stringify(await readRuntimeFiles("node_modules/jiti"))};`,
+      loader: "js"
+    }));
+  }
+};
 
 const rendererNodeImportBridge = {
   name: "renderer-node-import-bridge",
@@ -23,7 +46,7 @@ const shared = {
   target: "node22",
   sourcemap: true,
   external: ["obsidian"],
-  plugins: [rendererNodeImportBridge],
+  plugins: [rendererNodeImportBridge, vendoredJitiRuntimePlugin],
   logLevel: "info"
 };
 
