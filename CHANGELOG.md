@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.5] - 2026-08-30
+
+### Fixed
+
+- Restored the settings tab switcher and refined it into a flat tab rail with a quiet in-panel Added keys divider.
+
 ## [0.5.4] - 2026-08-30
 
 ### Fixed
