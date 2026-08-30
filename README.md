@@ -34,7 +34,7 @@ That means:
 - The controller uses `PiAgentRuntime` to access Pi's `Agent`, model catalog, provider adapters, credential abstraction, streaming events, and cancellation API directly in the Obsidian Electron process.
 - Pi's interactive CLI commands, terminal UI, and host-level Pi resources are not part of this plugin slice. They require an explicit future integration rather than being inherited automatically from a local Pi installation. Vault-local extensions are the exception; see below.
 
-**Pi agent directory:** Plugin settings stores a vault-relative `agentDir`, defaulting to `_pi/agent`; paths outside the vault are rejected. The underscore keeps the folder visible in Obsidian's file explorer. The harness receives the resolved `<vault>/_pi/agent` path and discovers its `extensions/` directory (see below). The desktop settings panel also stores a vault-relative `extensions` list, analogous to Pi Coding Agent's `settings.json` sources. Skills, prompts, packages, and themes remain future resource-loader work.
+**Pi agent directory:** Plugin settings stores a vault-relative `agentDir`, defaulting to `_pi/agent`; paths outside the vault are rejected. The underscore keeps the folder visible in Obsidian's file explorer. The harness receives the resolved `<vault>/_pi/agent` path and discovers extensions only from its `extensions/` directory (see below). Skills, prompts, packages, and themes remain future resource-loader work.
 
 ## Extensions
 
@@ -43,9 +43,8 @@ Note Pi resolves extensions the same way pi-coding-agent does, rooted at the vau
 - `<agentDir>/extensions/*.ts|*.js` load directly.
 - `<agentDir>/extensions/<name>/index.ts|index.js` load as subdirectory entries.
 - `<agentDir>/extensions/<name>/package.json` with a `pi.extensions` field loads its declared paths.
-- Each configured **Extension source** loads a `.ts`/`.js` module, a package directory with `pi.extensions` or `index.ts`/`index.js`, or a directory containing those entries.
 
-Discovery never recurses beyond one level and never touches global Pi locations. Explicit sources are vault-relative and intentionally do not support Pi's glob, package-install, or global-location settings. Extensions are TypeScript or JavaScript modules whose default export is a factory function receiving a subset of Pi's `ExtensionAPI`:
+Discovery never recurses beyond one level and never touches global Pi locations. Extensions are TypeScript or JavaScript modules whose default export is a factory function receiving a subset of Pi's `ExtensionAPI`:
 
 ```typescript
 import { Type } from "typebox";
@@ -57,7 +56,7 @@ export default function (pi) {
 }
 ```
 
-Supported handlers: `session_start`, `session_shutdown`, `turn_start`, `turn_end`, `tool_call` (may return `{ block: true, reason }`), and `tool_result`. Registered tools join the agent's tool list next to the vault read tool, and `/name args` typed in the composer invokes a registered command. `typebox` and the bundled Pi packages resolve as virtual modules, so CLI-style imports work unchanged. A header chip lists loaded extensions and any load failures. The Extensions section of the **General** settings tab is the management surface: it shows each loaded module, its tools and commands, load failures, configured sources, and provides a reload control.
+Supported handlers: `session_start`, `session_shutdown`, `turn_start`, `turn_end`, `tool_call` (may return `{ block: true, reason }`), and `tool_result`. Registered tools join the agent's tool list next to the vault read tool, and `/name args` typed in the composer invokes a registered command. `typebox` and the bundled Pi packages resolve as virtual modules, so CLI-style imports work unchanged. A header chip lists loaded extensions and any load failures. The **Extensions** settings tab lists each loaded extension's name and description. Configure the Pi agent directory from the **General** tab.
 
 This is compatible with the shared Pi extension model, not a drop-in copy of the full Coding Agent runtime. A limited compatibility shim allows common inspection extensions to import the Coding Agent's agent-directory and tool/command helpers, but terminal UI, keyboard shortcuts, CLI flags, package installation, and full Coding-Agent session/settings APIs remain unavailable because Note Pi deliberately embeds `pi-agent-core`.
 
@@ -78,7 +77,7 @@ provider API keys ───────► apply persistent configuration ──
                                       render message deltas
 ```
 
-Note Pi settings are split into two tabs. **General** holds the agent directory, the extension manager, and the auto-context toggle. **API Provider** is a pure key manager: pick a provider, paste its key, and save; each stored key can be replaced, connection-tested, or removed. Multiple providers can hold keys at the same time, and key management never touches the chat session.
+Note Pi settings are split into three tabs. **General** holds the agent directory and auto-context toggle. **Extensions** lists the extensions currently loaded from that directory. **API Provider** is a pure key manager: pick a provider, paste its key, and save; each stored key can be replaced, connection-tested, or removed. Multiple providers can hold keys at the same time, and key management never touches the chat session.
 
 The composer bar contains the current model picker, the UI equivalent of a basic `/model` control. It lists the bundled Pi model catalog for every configured provider, grouped by provider. Model choice is session-only: it is held by the harness, preserves the current transcript, and is never written to Obsidian plugin data. If the active provider's key is removed, the harness falls back to any remaining configured provider.
 

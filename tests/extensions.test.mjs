@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import { discoverConfiguredExtensionPaths, discoverExtensionPaths, loadNotePiExtensions } from "../src/harness/extensions.mjs";
+import { discoverExtensionPaths, loadNotePiExtensions } from "../src/harness/extensions.mjs";
 import { EmbeddedHarness } from "../src/harness/host.mjs";
 import { PiAgentRuntime } from "../src/harness/pi-agent-runtime.mjs";
 
@@ -46,18 +46,21 @@ test("discovery returns nothing when the extensions directory is missing", async
   });
 });
 
-test("configured Pi-style sources load modules and package directories without duplicating auto-discovered paths", async () => {
+test("extension summary uses package metadata and local-file fallbacks", async () => {
   await withTempAgentDir(async (agentDir) => {
-    const configuredFile = join(agentDir, "configured.ts");
-    const packageDir = join(agentDir, "package-extension");
+    const extensionsDir = join(agentDir, "extensions");
+    const packageDir = join(extensionsDir, "package-extension");
     await mkdir(packageDir, { recursive: true });
-    await writeFile(configuredFile, "export default function (pi) { pi.registerCommand('configured', { handler: async () => 'ok' }); }");
-    await writeFile(join(packageDir, "package.json"), JSON.stringify({ pi: { extensions: ["main.ts"] } }));
-    await writeFile(join(packageDir, "main.ts"), "export default function (pi) { pi.registerCommand('packaged', { handler: async () => 'ok' }); }");
+    await writeFile(join(extensionsDir, "local.ts"), "export default function () {}");
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ name: "package-extension", description: "A package extension", pi: { extensions: ["src/main.ts"] } }));
+    await mkdir(join(packageDir, "src"));
+    await writeFile(join(packageDir, "src", "main.ts"), "export default function () {}");
 
-    assert.deepEqual(discoverConfiguredExtensionPaths([configuredFile, packageDir]).map((entry) => entry.slice(agentDir.length + 1)).sort(), ["configured.ts", "package-extension/main.ts"]);
-    const registry = await loadNotePiExtensions(agentDir, {}, JITI_PATH, [configuredFile, packageDir, configuredFile]);
-    assert.deepEqual([...registry.commands().keys()].sort(), ["configured", "packaged"]);
+    const registry = await loadNotePiExtensions(agentDir, {}, JITI_PATH);
+    assert.deepEqual(registry.summary().extensions.map(({ name, description }) => ({ name, description })).sort((a, b) => a.name.localeCompare(b.name)), [
+      { name: "local", description: "Local extension" },
+      { name: "package-extension", description: "A package extension" }
+    ]);
   });
 });
 
@@ -168,6 +171,20 @@ test("harness loads vault-local extensions during configuration and routes slash
     assert.deepEqual(harness.snapshot().extensions[0].commands, ["echo"]);
     assert.ok(events.includes("session.extensions"));
     assert.equal(await harness.submit("/echo hello there"), "echo: hello there");
+  });
+});
+
+test("harness ignores extension sources outside the Pi agent directory", async () => {
+  await withTempAgentDir(async (agentDir) => {
+    const extensionsDir = join(agentDir, "extensions");
+    const outsideExtension = join(agentDir, "outside.ts");
+    await mkdir(extensionsDir, { recursive: true });
+    await writeFile(join(extensionsDir, "local.ts"), "export default function (pi) { pi.registerCommand('local', { handler: async () => 'ok' }); }");
+    await writeFile(outsideExtension, "export default function (pi) { pi.registerCommand('outside', { handler: async () => 'not ok' }); }");
+    const harness = new EmbeddedHarness();
+    await harness.applyPluginConfiguration({ providerId: "google", vaultPath: agentDir, agentDir, extensionPaths: [outsideExtension], jitiPath: JITI_PATH });
+    assert.deepEqual(harness.snapshot().extensions.map((extension) => extension.name), ["local"]);
+    assert.deepEqual([...harness.extensionRegistry.commands().keys()], ["local"]);
   });
 });
 
