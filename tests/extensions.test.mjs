@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import { discoverExtensionPaths, loadNotePiExtensions } from "../src/harness/extensions.mjs";
+import { discoverConfiguredExtensionPaths, discoverExtensionPaths, loadNotePiExtensions } from "../src/harness/extensions.mjs";
 import { EmbeddedHarness } from "../src/harness/host.mjs";
 import { PiAgentRuntime } from "../src/harness/pi-agent-runtime.mjs";
 
@@ -43,6 +43,41 @@ test("discovery matches pi-coding-agent rules: files, index entries, and pi mani
 test("discovery returns nothing when the extensions directory is missing", async () => {
   await withTempAgentDir(async (agentDir) => {
     assert.deepEqual(discoverExtensionPaths(join(agentDir, "extensions")), []);
+  });
+});
+
+test("configured Pi-style sources load modules and package directories without duplicating auto-discovered paths", async () => {
+  await withTempAgentDir(async (agentDir) => {
+    const configuredFile = join(agentDir, "configured.ts");
+    const packageDir = join(agentDir, "package-extension");
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(configuredFile, "export default function (pi) { pi.registerCommand('configured', { handler: async () => 'ok' }); }");
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ pi: { extensions: ["main.ts"] } }));
+    await writeFile(join(packageDir, "main.ts"), "export default function (pi) { pi.registerCommand('packaged', { handler: async () => 'ok' }); }");
+
+    assert.deepEqual(discoverConfiguredExtensionPaths([configuredFile, packageDir]).map((entry) => entry.slice(agentDir.length + 1)).sort(), ["configured.ts", "package-extension/main.ts"]);
+    const registry = await loadNotePiExtensions(agentDir, {}, JITI_PATH, [configuredFile, packageDir, configuredFile]);
+    assert.deepEqual([...registry.commands().keys()].sort(), ["configured", "packaged"]);
+  });
+});
+
+test("compatibility shims load Coding Agent utility extensions that only use text-mode commands", async () => {
+  await withTempAgentDir(async (agentDir) => {
+    const extensionsDir = join(agentDir, "extensions");
+    await mkdir(extensionsDir, { recursive: true });
+    await writeFile(
+      join(extensionsDir, "utility.ts"),
+      `import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Container } from "@earendil-works/pi-tui";
+class NeverRendered extends Container {}
+export default function (pi) {
+  if (CONFIG_DIR_NAME !== ".pi" || getAgentDir() !== ${JSON.stringify(agentDir)}) throw new Error("compatibility module unavailable");
+  pi.registerCommand("tools", { handler: async () => pi.getAllTools().map((tool) => tool.name).join(",") });
+}`
+    );
+    const registry = await loadNotePiExtensions(agentDir, { getAllTools: () => [{ name: "read" }] }, JITI_PATH);
+    assert.equal(registry.errors.length, 0);
+    assert.equal(await registry.runCommand("tools", ""), "read");
   });
 });
 

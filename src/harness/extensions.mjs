@@ -7,6 +7,7 @@
  *   <agentDir>/extensions/*.ts|*.js            -> load directly
  *   <agentDir>/extensions/* /index.ts|index.js -> load subdirectory entry
  *   <agentDir>/extensions/* /package.json      -> "pi.extensions" declared paths
+ *   configured extension file/directory sources -> load directly
  *
  * Discovery never recurses beyond one level and never reads global Pi
  * locations. Modules load through jiti with Note Pi's bundled typebox and
@@ -34,17 +35,62 @@ import * as typebox from "typebox";
 /** Events extensions can subscribe to. Names match pi-coding-agent. */
 export const EXTENSION_EVENTS = ["session_start", "session_shutdown", "turn_start", "turn_end", "tool_call", "tool_result"];
 
-const VIRTUAL_MODULES = {
-  typebox,
-  "typebox/compile": typebox,
-  "typebox/value": typebox,
-  "@sinclair/typebox": typebox,
-  "@earendil-works/pi-agent-core": piAgentCore,
-  "@earendil-works/pi-ai": piAi,
-  // Extensions written against the CLI import its types; type-only imports
-  // erase at transform time, but a runtime import still needs to resolve.
-  "@earendil-works/pi-coding-agent": piAgentCore
+class UnsupportedTuiComponent {
+  constructor(..._args) {}
+  addChild(..._args) {}
+  invalidate() {}
+}
+
+const PI_TUI_SHIM = {
+  Container: UnsupportedTuiComponent,
+  Spacer: UnsupportedTuiComponent,
+  Text: UnsupportedTuiComponent,
+  getKeybindings: () => ({})
 };
+
+/**
+ * A few extension packages import Coding Agent helpers even when their useful
+ * commands only need the shared ExtensionAPI. Keep those imports loadable and
+ * deliberately fall back to their local discovery paths instead of pretending
+ * Note Pi owns Pi's package manager or terminal UI.
+ */
+function createCodingAgentCompatibilityModule(agentDir) {
+  class DefaultPackageManager {
+    async resolve() {
+      throw new Error("Pi Coding Agent package management is not available in Note Pi.");
+    }
+  }
+  return {
+    ...piAgentCore,
+    CONFIG_DIR_NAME: ".pi",
+    getAgentDir: () => agentDir,
+    DefaultPackageManager,
+    SettingsManager: {
+      create: () => ({
+        getProjectSettings: () => ({}),
+        getPackages: () => [],
+        setProjectPackages: () => {},
+        setPackages: () => {}
+      })
+    }
+  };
+}
+
+function createVirtualModules(agentDir) {
+  return {
+    typebox,
+    "typebox/compile": typebox,
+    "typebox/value": typebox,
+    "@sinclair/typebox": typebox,
+    "@earendil-works/pi-agent-core": piAgentCore,
+    "@earendil-works/pi-ai": piAi,
+    "@earendil-works/pi-tui": PI_TUI_SHIM,
+    // Extensions written against the CLI import its types; type-only imports
+    // erase at transform time. Runtime helpers use this limited compatibility
+    // module rather than receiving the unrelated core export surface.
+    "@earendil-works/pi-coding-agent": createCodingAgentCompatibilityModule(agentDir)
+  };
+}
 
 function isExtensionFile(name) {
   return name.endsWith(".ts") || name.endsWith(".js");
@@ -102,6 +148,34 @@ export function discoverExtensionPaths(extensionsDir) {
   return discovered;
 }
 
+/**
+ * Resolve Pi-style explicit extension sources. A source can name an extension
+ * module, a package directory (index or `pi.extensions`), or a directory of
+ * extensions. The plugin resolves and validates these paths before they reach
+ * this loader, so this function deliberately does not expand globs or access
+ * global Pi locations.
+ */
+export function discoverConfiguredExtensionPaths(extensionPaths = []) {
+  const discovered = [];
+  for (const extensionPath of extensionPaths) {
+    if (typeof extensionPath !== "string" || !fs.existsSync(extensionPath)) continue;
+    let stat;
+    try {
+      stat = fs.statSync(extensionPath);
+    } catch {
+      continue;
+    }
+    if (stat.isFile() && isExtensionFile(extensionPath)) {
+      discovered.push(extensionPath);
+      continue;
+    }
+    if (!stat.isDirectory()) continue;
+    const entries = resolveExtensionEntries(extensionPath);
+    discovered.push(...(entries.length ? entries : discoverExtensionPaths(extensionPath)));
+  }
+  return discovered;
+}
+
 function createExtension(extensionPath) {
   return {
     path: extensionPath,
@@ -126,6 +200,15 @@ function createExtensionApi(extension, host) {
     registerCommand(name, options) {
       if (!name || typeof options?.handler !== "function") throw new Error("Extension commands require a name and a handler.");
       extension.commands.set(name, { name, description: options.description ?? "", handler: options.handler });
+    },
+    getAllTools() {
+      return host.getAllTools?.() ?? [];
+    },
+    getActiveTools() {
+      return host.getActiveTools?.() ?? [];
+    },
+    getCommands() {
+      return host.getCommands?.() ?? [];
     }
   };
 }
@@ -137,9 +220,12 @@ function createExtensionApi(extension, host) {
  * `jitiPath` must point at the vendored jiti entry (runtime/jiti/lib/jiti.cjs
  * in the packaged plugin, node_modules/jiti/lib/jiti.cjs in tests).
  */
-export async function loadNotePiExtensions(agentDir, host = {}, jitiPath) {
+export async function loadNotePiExtensions(agentDir, host = {}, jitiPath, configuredExtensionPaths = []) {
   const extensionsDir = path.join(agentDir, "extensions");
-  const paths = discoverExtensionPaths(extensionsDir);
+  const paths = [...new Set([
+    ...discoverExtensionPaths(extensionsDir),
+    ...discoverConfiguredExtensionPaths(configuredExtensionPaths)
+  ])];
   if (!paths.length) return new ExtensionRegistry([], [], host);
   if (!jitiPath || !fs.existsSync(jitiPath)) {
     return new ExtensionRegistry([], [{ path: extensionsDir, error: "Bundled jiti runtime is missing; extensions cannot load." }], host);
@@ -148,7 +234,7 @@ export async function loadNotePiExtensions(agentDir, host = {}, jitiPath) {
   const jiti = createJiti(jitiPath, {
     moduleCache: false,
     fsCache: false,
-    virtualModules: VIRTUAL_MODULES
+    virtualModules: createVirtualModules(agentDir)
   });
   const extensions = [];
   const errors = [];
