@@ -1,5 +1,6 @@
 import { Component, ItemView, MarkdownRenderer, MarkdownView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import type { HarnessClient, HarnessSessionMeta, HarnessSnapshot } from "./harness/client";
+import { composerTrigger, filterSuggestions, replaceComposerRange } from "./composer-suggestions.mjs";
 
 export const VIEW_TYPE_NOTE_PI = "note-pi-view";
 
@@ -7,6 +8,9 @@ export const VIEW_TYPE_NOTE_PI = "note-pi-view";
 const STREAM_RENDER_INTERVAL_MS = 120;
 
 type RenderedMarkdown = { el: HTMLElement; component?: Component; source: string };
+type ComposerSuggestionKind = "note" | "note-browser" | "command";
+type ComposerSuggestionItem = { name: string; detail: string; file?: TFile; command?: string };
+type ComposerSuggestionRange = { start: number; end: number };
 
 /** Host-supplied preference for attaching the focused note when a session starts. */
 export interface ContextNotePrefs {
@@ -56,6 +60,12 @@ export class ObsidianAgentView extends ItemView {
   private historyButtonEl?: HTMLButtonElement;
   private contextNotes: { path: string; name: string }[] = [];
   private contextRowEl?: HTMLElement;
+  private composerContainerEl?: HTMLElement;
+  private suggestionEl?: HTMLElement;
+  private suggestionKind?: ComposerSuggestionKind;
+  private suggestionQuery = "";
+  private suggestionRange?: ComposerSuggestionRange;
+  private suggestionIndex = 0;
   private lastFocusedNotePath?: string;
   private seededContextSessions = new Set<string>();
   private thinkingText = "";
@@ -489,6 +499,7 @@ export class ObsidianAgentView extends ItemView {
 
   private renderComposer() {
     const composer = this.contentEl.createDiv({ cls: "note-pi-composer" });
+    this.composerContainerEl = composer;
     this.contextRowEl = composer.createDiv({ cls: "note-pi-context-row" });
     this.seedAutoContextNote();
     this.renderContextChips();
@@ -496,8 +507,12 @@ export class ObsidianAgentView extends ItemView {
     this.composerEl = box.createEl("textarea", {
       attr: { placeholder: "Ask anything…", rows: "1", "aria-label": "Message Note Pi" }
     });
-    this.composerEl.addEventListener("input", () => this.autoGrowComposer());
+    this.composerEl.addEventListener("input", () => {
+      this.autoGrowComposer();
+      this.updateComposerSuggestion();
+    });
     this.composerEl.addEventListener("keydown", (event) => {
+      if (this.handleSuggestionKey(event)) return;
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         if (this.isStreaming) return;
@@ -547,10 +562,10 @@ export class ObsidianAgentView extends ItemView {
         }
       });
     }
-    const add = this.contextRowEl.createEl("button", { cls: "note-pi-context-add", attr: { "aria-label": "Add the focused note as context", title: "Add the focused note as context" } });
-    setIcon(add.createSpan({ cls: "note-pi-context-add-icon" }), "plus");
-    add.createSpan({ text: "Add current note" });
-    add.onclick = () => this.addFocusedNoteContext();
+    const browse = this.contextRowEl.createEl("button", { cls: "note-pi-context-add", attr: { "aria-label": "Browse notes to add as context", title: "Browse notes to add" } });
+    setIcon(browse.createSpan({ cls: "note-pi-context-add-icon" }), "folder");
+    browse.createSpan({ text: "Add note" });
+    browse.onclick = () => this.openNoteBrowser();
   }
 
   /** The note treated as "current": the live active file, or the last focused one. */
@@ -578,15 +593,134 @@ export class ObsidianAgentView extends ItemView {
     this.contextNotes.push({ path: file.path, name: file.basename });
   }
 
-  private addFocusedNoteContext() {
-    const file = this.focusedNoteFile();
-    if (!file) {
-      new Notice("No focused note to add. Focus a note first.");
-      return;
-    }
+  private addNoteContext(file: TFile) {
     if (this.contextNotes.some((note) => note.path === file.path)) return;
     this.contextNotes.push({ path: file.path, name: file.basename });
     this.renderContextChips();
+  }
+
+  // --- Composer suggestions ---------------------------------------------------
+
+  /** Present the note list from the folder button without changing composer text. */
+  private openNoteBrowser() {
+    this.suggestionKind = "note-browser";
+    this.suggestionQuery = "";
+    this.suggestionRange = undefined;
+    this.suggestionIndex = 0;
+    this.renderComposerSuggestion();
+  }
+
+  /** Update typed @-note and /-command completion from the current cursor. */
+  private updateComposerSuggestion() {
+    const trigger = composerTrigger(this.composerEl.value, this.composerEl.selectionStart ?? this.composerEl.value.length);
+    if (!trigger) {
+      this.dismissSuggestion();
+      return;
+    }
+    this.suggestionKind = trigger.kind === "note" ? "note" : "command";
+    this.suggestionQuery = trigger.query;
+    this.suggestionRange = { start: trigger.start, end: trigger.end };
+    this.suggestionIndex = 0;
+    this.renderComposerSuggestion();
+  }
+
+  private suggestionItems(): ComposerSuggestionItem[] {
+    if (this.suggestionKind === "command") {
+      const commands = new Set<string>();
+      for (const extension of this.snapshot.extensions) {
+        for (const command of extension.commands) commands.add(command);
+      }
+      return filterSuggestions([...commands].map((command) => ({ name: `/${command}`, detail: "Extension command", command })), this.suggestionQuery);
+    }
+    const attached = new Set(this.contextNotes.map((note) => note.path));
+    const limit = this.suggestionKind === "note-browser" ? 80 : 8;
+    return filterSuggestions(
+      this.app.vault.getMarkdownFiles()
+        .filter((file) => !attached.has(file.path))
+        .map((file) => ({ name: file.basename, detail: file.path, file })),
+      this.suggestionQuery,
+      limit
+    );
+  }
+
+  private renderComposerSuggestion() {
+    this.suggestionEl?.remove();
+    this.suggestionEl = undefined;
+    if (!this.suggestionKind || !this.composerContainerEl) return;
+    const items = this.suggestionItems();
+    this.suggestionIndex = Math.min(this.suggestionIndex, Math.max(items.length - 1, 0));
+    const popup = this.composerContainerEl.createDiv({ cls: "note-pi-suggestion" });
+    this.suggestionEl = popup;
+    const heading = this.suggestionKind === "command" ? "Commands" : this.suggestionKind === "note-browser" ? "Add a note" : "Add note to context";
+    popup.createDiv({ cls: "note-pi-suggestion-heading", text: heading });
+    if (!items.length) {
+      popup.createDiv({ cls: "note-pi-suggestion-empty", text: this.suggestionKind === "command" ? "No matching extension commands." : "No matching notes." });
+      return;
+    }
+    const list = popup.createDiv({ cls: "note-pi-suggestion-list", attr: { role: "listbox" } });
+    items.forEach((item, index) => {
+      const option = list.createDiv({ cls: `note-pi-suggestion-option${index === this.suggestionIndex ? " is-selected" : ""}`, attr: { role: "option", "aria-selected": String(index === this.suggestionIndex) } });
+      option.createDiv({ cls: "note-pi-suggestion-name", text: item.name });
+      option.createDiv({ cls: "note-pi-suggestion-detail", text: item.detail });
+      option.addEventListener("mousedown", (event) => event.preventDefault());
+      option.addEventListener("click", () => this.chooseSuggestion(item));
+    });
+  }
+
+  private handleSuggestionKey(event: KeyboardEvent): boolean {
+    if (!this.suggestionKind) return false;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.dismissSuggestion();
+      return true;
+    }
+    const items = this.suggestionItems();
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (items.length) {
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        this.suggestionIndex = (this.suggestionIndex + direction + items.length) % items.length;
+        this.renderComposerSuggestion();
+      }
+      return true;
+    }
+    if ((event.key === "Enter" || event.key === "Tab") && items[this.suggestionIndex]) {
+      event.preventDefault();
+      this.chooseSuggestion(items[this.suggestionIndex]);
+      return true;
+    }
+    return false;
+  }
+
+  private chooseSuggestion(item: ComposerSuggestionItem) {
+    const kind = this.suggestionKind;
+    if ((kind === "note" || kind === "note-browser") && item.file) {
+      this.addNoteContext(item.file);
+      if (kind === "note" && this.suggestionRange) this.replaceComposerSuggestion("");
+    }
+    if (kind === "command" && item.command && this.suggestionRange) this.replaceComposerSuggestion(`/${item.command} `);
+    this.dismissSuggestion();
+    this.composerEl.focus();
+  }
+
+  private replaceComposerSuggestion(replacement: string) {
+    if (!this.suggestionRange) return;
+    const { start, end } = this.suggestionRange;
+    this.composerEl.value = replaceComposerRange(this.composerEl.value, start, end, replacement);
+    const cursor = start + replacement.length;
+    this.composerEl.setSelectionRange(cursor, cursor);
+    this.autoGrowComposer();
+  }
+
+  private dismissSuggestion() {
+    if (!this.suggestionKind && !this.suggestionEl) return false;
+    this.suggestionEl?.remove();
+    this.suggestionEl = undefined;
+    this.suggestionKind = undefined;
+    this.suggestionQuery = "";
+    this.suggestionRange = undefined;
+    this.suggestionIndex = 0;
+    return true;
   }
 
   private renderModelPicker(parent: HTMLElement) {
