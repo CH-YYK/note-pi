@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.2] - 2026-08-30
+
+### Fixed
+
+- iPad/iPhone chat turns failed with "Can't find variable: process": the universal bundle's Node-style module resolution picked @google/genai's node variant (plus debug's and yaml's node builds), which read Node globals the iOS WebView doesn't have. The build now pins the browser variants, and a WebView-safety test evaluates the shipped main.js without Node globals and runs a Gemini probe against a stubbed fetch.
+- Gemini on mobile now uses the WebView's native fetch (the Gemini endpoint allows the app://obsidian.md origin) instead of the requestUrl adapter, which pi-ai's Google adapters reject.
+- Chat view icons rendered as blank squares on mobile: Chromium collapses svg.svg-icon width to zero inside the view's inline-size container, so icon rules now set min-width. The mobile send button also anchors to the trailing edge of the composer bar.
+
 ## [0.6.1] - 2026-08-30
 
 ### Added
