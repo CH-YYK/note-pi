@@ -1,8 +1,8 @@
 {
   "name": "note-pi",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": false,
-  "description": "Desktop-only Obsidian view backed by an embedded Pi harness runtime",
+  "description": "Obsidian view backed by an embedded Pi harness runtime, on desktop and mobile",
   "scripts": {
     "build": "node esbuild.config.mjs",
     "typecheck": "tsc --noEmit",

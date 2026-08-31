@@ -14,9 +14,13 @@ for (const forbidden of ['require("node:', "from \"node:", 'require("node-fetch'
 }
 assert.ok(bundle.includes('require("obsidian")'), "mobile.js must keep obsidian as an external.");
 
-// The desktop artifact and manifest are untouched by the mobile target until
-// the spike passes on real iPad hardware.
+// The shipped artifact is the universal main.js, which must dispatch on
+// Platform.isMobile so mobile devices (and mobile emulation) load the
+// WebView-safe runtime.
 const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
-assert.equal(manifest.isDesktopOnly, true, "isDesktopOnly flips only after on-device validation of the mobile build.");
+assert.equal(manifest.isDesktopOnly, false, "The plugin runs on desktop and mobile.");
+
+const universal = readFileSync("main.js", "utf8");
+assert.ok(universal.includes("isMobile"), "main.js must dispatch on Platform.isMobile.");
 
 console.log("Mobile bundle verification passed.");

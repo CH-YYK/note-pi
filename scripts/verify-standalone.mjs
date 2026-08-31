@@ -8,7 +8,7 @@ for (const required of ["main.js", "manifest.json"]) {
 assert.ok(existsSync("runtime/jiti/lib/jiti.cjs"), "Missing vendored jiti runtime required for extension loading.");
 
 const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
-assert.equal(manifest.isDesktopOnly, true, "The embedded Node runtime requires a desktop-only plugin.");
+assert.equal(manifest.isDesktopOnly, false, "The plugin is universal; the desktop runtime is selected by the main.js dispatcher.");
 
 const bundle = readFileSync("main.js", "utf8");
 assert.ok(!bundle.includes("import(__rewriteRelativeImportExtension(specifier))"), "Pi's dynamic Node imports must be bridged for the Obsidian renderer.");

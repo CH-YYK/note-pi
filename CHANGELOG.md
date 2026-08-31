@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1] - 2026-08-30
+
+### Added
+
+- Mobile support: `main.js` is now a universal bundle whose entry point dispatches on `Platform.isMobile` to the desktop or mobile runtime, so the plugin runs on iPad and iPhone with `isDesktopOnly` turned off. The mobile runtime is the read-only Pi chat (Google Gemini over Obsidian's `requestUrl` transport, vault reads through the Obsidian vault API, sessions in plugin data) built from `src/mobile/`.
+
 ## [0.6.0] - 2026-08-30
 
 ### Added
