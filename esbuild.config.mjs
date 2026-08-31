@@ -2,6 +2,27 @@ import esbuild from "esbuild";
 import { cp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
+/**
+ * @google/genai ships separate node and browser variants behind export
+ * conditions. platform "node" resolution picks the node variant, which reads
+ * bare `process` globals that don't exist in Obsidian's iOS WebView (and
+ * pulls in google-auth-library's Node-only dependency tree). The plugin only
+ * uses API-key auth, which the web variant fully supports, so pin every
+ * import of @google/genai to the web variant — the same resolution the
+ * browser-platform mobile.js build already validates.
+ *
+ * Same story for debug: its "browser" field points at the WebView-safe
+ * variant, while platform "node" resolution picks src/node.js, which lazily
+ * requires the "process" builtin. Pin the browser variant too.
+ *
+ * And for yaml: its exports map has an explicit "node" condition pointing at
+ * the CJS build, whose parser requires the "process" builtin; the default
+ * (browser) build is environment-neutral. Pin the browser build.
+ */
+const genaiWebEntry = join(import.meta.dirname, "node_modules", "@google", "genai", "dist", "web", "index.mjs");
+const debugBrowserEntry = join(import.meta.dirname, "node_modules", "debug", "src", "browser.js");
+const yamlBrowserEntry = join(import.meta.dirname, "node_modules", "yaml", "browser", "index.js");
+
 async function readRuntimeFiles(directory, prefix = "") {
   const files = {};
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -58,13 +79,14 @@ const shared = {
 
 await esbuild.build({
   ...shared,
-  // Universal entry: src/entry.ts dispatches on Platform.isMobileApp and
+  // Universal entry: src/entry.ts dispatches on Platform.isMobile and
   // lazily require()s the desktop or mobile subtree, so the unselected
   // runtime's module scope (including the desktop tree's Node imports) never
   // evaluates. platform "node" keeps Node builtins external — they are only
   // reached inside the lazily-initialized desktop subtree. target es2022
   // keeps the emitted syntax inside the iOS WebView's support window.
   target: "es2022",
+  alias: { "@google/genai": genaiWebEntry, debug: debugBrowserEntry, yaml: yamlBrowserEntry },
   entryPoints: ["src/entry.ts"],
   format: "cjs",
   outfile: "main.js"
