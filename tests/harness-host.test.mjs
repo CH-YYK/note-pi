@@ -144,17 +144,34 @@ test("agent requests use Node-backed fetch instead of Obsidian renderer fetch", 
   assert.notEqual(receivedOptions.fetch, globalThis.fetch);
 });
 
-test("runtime fetch returns Web-standard response streams", async () => {
+test("runtime fetch bypasses renderer fetch and returns Web-standard response streams", async () => {
   const server = createServer((_request, response) => response.end("stream-ready"));
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const rendererFetch = globalThis.fetch;
   try {
     const { port } = server.address();
+    globalThis.fetch = async () => { throw new Error("renderer fetch must not be used for provider requests"); };
     const response = await nodeBackedFetch(`http://127.0.0.1:${port}`);
     assert.equal(typeof response.body?.getReader, "function");
     const reader = response.body.getReader();
     const first = await reader.read();
     assert.equal(new TextDecoder().decode(first.value), "stream-ready");
     assert.equal((await reader.read()).done, true);
+  } finally {
+    globalThis.fetch = rendererFetch;
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("runtime fetch exposes an empty response as a closed Web stream", async () => {
+  const server = createServer((_request, response) => response.writeHead(204).end());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const { port } = server.address();
+    const response = await nodeBackedFetch(`http://127.0.0.1:${port}`);
+    assert.equal(response.status, 204);
+    assert.equal(typeof response.body?.getReader, "function");
+    assert.equal((await response.body.getReader().read()).done, true);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
