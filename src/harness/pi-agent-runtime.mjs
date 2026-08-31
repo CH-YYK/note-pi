@@ -7,13 +7,24 @@
  */
 import { Agent, createReadTool, FileError } from "@earendil-works/pi-agent-core";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import nodeFetch from "node-fetch";
 import { relative } from "node:path";
 import { realpath } from "node:fs/promises";
+import { Readable } from "node:stream";
 
-// Obsidian's desktop runtime uses Node 22, whose built-in fetch already
-// provides the Web-standard response Pi's provider SDKs require.
+// Obsidian's renderer-global fetch is CORS-bound. node-fetch runs through
+// Electron's Node integration instead, so provider requests use the same
+// Web-standard fetch API without renderer network policy restrictions.
 export async function nodeBackedFetch(input, init) {
-  return fetch(input, init);
+  const response = await nodeFetch(input, init);
+  return {
+    body: response.body ? Readable.toWeb(response.body) : null,
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+    ok: response.ok,
+    url: response.url
+  };
 }
 
 export class PiAgentRuntime {
