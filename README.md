@@ -114,7 +114,9 @@ The mobile build runs in Obsidian's iOS WebView and is verified to be free of `n
 2. In the **API Provider** tab, select a provider and save its API key or token. Repeat for as many providers as you like; the test action on each saved key probes the provider with a minimal request.
 3. Run **Open Note Pi** from the command palette.
 4. Choose a model in the composer bar.
-5. Send a message. Press `Escape` while a response is streaming to cancel it.
+5. Add note context with **Add note**, or type `@` followed by a note name; select a result to create a removable context chip.
+6. Type `/` to browse commands from loaded extensions; select one to complete it in the composer.
+7. Send a message. Press `Escape` while a response is streaming to cancel it, or while a suggestion list is open to dismiss the list.
 
 The model menu spans the bundled Pi model catalogs of every provider with a saved key, grouped by provider. Each provider's credentials and model list are independent of the others.
 
