@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-08-30
+
+### Added
+
+- Chat composer note and command completion: browse vault notes from the folder button or with `@`, and filter extension commands with `/`. Selected notes become removable context chips; selected commands complete in place.
+
+### Fixed
+
+- Composer suggestion options remain selectable after hovering.
+
 ## [0.5.6] - 2026-08-30
 
 ### Fixed
