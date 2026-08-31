@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.6] - 2026-08-30
+
+### Fixed
+
+- Kimi Code and other desktop providers now send requests through Node networking instead of the CORS-restricted Obsidian renderer, so saved API keys can connect successfully.
+
 ## [0.5.5] - 2026-08-30
 
 ### Fixed
