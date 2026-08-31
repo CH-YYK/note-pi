@@ -30,8 +30,13 @@ const rendererNodeImportBridge = {
     build.onLoad({ filter: /node_modules\/@earendil-works\/pi-ai\/dist\/.*\.js$/ }, async (args) => {
       let source = await readFile(args.path, "utf8");
       source = source
-        .replace("const dynamicImport = (specifier) => import(__rewriteRelativeImportExtension(specifier));", "const dynamicImport = (specifier) => Promise.resolve(require(specifier));")
-        .replace("const importNodeModule = (specifier) => import(__rewriteRelativeImportExtension(specifier));", "const importNodeModule = (specifier) => Promise.resolve(require(specifier));");
+        // Pi's dynamic Node imports don't resolve in the Obsidian renderer,
+        // so bridge them to require(). The require result can be null where
+        // Node is unavailable to the WebView (mobile emulation stubs it);
+        // resolve an empty module then, so guarded fallbacks that probe the
+        // result (e.g. pi-ai's env-api-keys) stay silent instead of throwing.
+        .replace("const dynamicImport = (specifier) => import(__rewriteRelativeImportExtension(specifier));", "const dynamicImport = (specifier) => Promise.resolve(require(specifier) ?? {});")
+        .replace("const importNodeModule = (specifier) => import(__rewriteRelativeImportExtension(specifier));", "const importNodeModule = (specifier) => Promise.resolve(require(specifier) ?? {});");
       return {
         contents: source,
         loader: "js"
@@ -53,16 +58,25 @@ const shared = {
 
 await esbuild.build({
   ...shared,
-  entryPoints: ["src/main.ts"],
+  // Universal entry: src/entry.ts dispatches on Platform.isMobileApp and
+  // lazily require()s the desktop or mobile subtree, so the unselected
+  // runtime's module scope (including the desktop tree's Node imports) never
+  // evaluates. platform "node" keeps Node builtins external — they are only
+  // reached inside the lazily-initialized desktop subtree. target es2022
+  // keeps the emitted syntax inside the iOS WebView's support window.
+  target: "es2022",
+  entryPoints: ["src/entry.ts"],
   format: "cjs",
   outfile: "main.js"
 });
 
-// Mobile (iPad/iPhone) build: a distinct runtime target with no Node APIs.
-// platform "browser" makes any accidental `node:*` import a build error, and
-// the rendererNodeImportBridge (which rewrites dynamic imports to require)
-// intentionally does not apply — guarded dynamic fallbacks inside pi-ai stay
-// dynamic and simply never run in the WebView.
+// Mobile (iPad/iPhone) verification build: the mobile subtree on its own,
+// bundled with platform "browser" so any accidental `node:*` import is a
+// build error. The shipped artifact is the universal main.js above; this
+// build exists so verify-mobile.mjs can prove the mobile runtime is
+// WebView-safe, and the rendererNodeImportBridge (which rewrites dynamic
+// imports to require) intentionally does not apply — guarded dynamic
+// fallbacks inside pi-ai stay dynamic and simply never run in the WebView.
 await esbuild.build({
   bundle: true,
   platform: "browser",

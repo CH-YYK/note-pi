@@ -1,6 +1,6 @@
 # Note Pi
 
-A desktop-only Obsidian plugin that opens a native-feeling chat pane backed by bundled [Pi](https://github.com/badlogic/pi-mono) agent libraries. It does not require, launch, or shell out to a `pi` binary installed on the host machine.
+An Obsidian plugin for desktop and mobile that opens a native-feeling chat pane backed by bundled [Pi](https://github.com/badlogic/pi-mono) agent libraries. It does not require, launch, or shell out to a `pi` binary installed on the host machine.
 
 ## Current slice
 
@@ -89,16 +89,16 @@ When auto-context is enabled (the default), the currently focused note is added 
 
 Obsidian's renderer `fetch` is governed by Chromium's network policy and cannot reliably call all model-provider endpoints. The harness therefore sends Pi provider requests through bundled Node networking (`node-fetch`) and adapts the Node response stream to the Web-stream interface Pi expects. API keys remain in local Obsidian plugin data and each key is passed only to requests for the provider that owns it.
 
-## Mobile (iPad/iPhone) runtime slice
+## Mobile (iPad/iPhone) runtime
 
-Mobile support is a distinct runtime target, not a manifest toggle on the desktop build. `npm run build` emits a second artifact, `mobile.js`, from `src/mobile/`, with a parallel stack:
+Mobile support is a distinct runtime target. The shipped `main.js` is a universal bundle: `src/entry.ts` checks `Platform.isMobile` and lazily `require()`s the desktop or mobile subtree, so the unselected runtime's module scope — including the desktop tree's Node imports — never evaluates. (`isMobile`, not `isMobileApp`, so mobile emulation on a desktop host also exercises the mobile runtime.) The two runtimes form a parallel stack:
 
 ```
 Desktop: ObsidianAgentView -> AgentController       -> PiAgentRuntime     -> pi-agent-core Agent
 Mobile:  MobileAgentView  -> MobileAgentController  -> MobileAgentRuntime -> pi-agent-core Agent (validated subset)
 ```
 
-The mobile build runs in Obsidian's iOS WebView and is verified to be free of `node:` imports, `node-fetch`, the Node execution environment, and the jiti extension loader (`npm run verify:mobile`). Its boundaries:
+The mobile runtime runs in Obsidian's iOS WebView. `npm run build` also emits `mobile.js`, the mobile subtree bundled alone with esbuild's browser platform, so `npm run verify:mobile` can prove the mobile code is free of `node:` imports, `node-fetch`, the Node execution environment, and the jiti extension loader. Its boundaries:
 
 - **Provider transport** goes through Obsidian's `requestUrl`, the mobile-safe network path. `requestUrl` buffers responses, so provider output is not token-streamed over the wire, and an in-flight HTTP request cannot be aborted (the local agent loop still cancels immediately).
 - **Vault access** is a single read-only tool implemented on Obsidian's vault APIs. Every agent-supplied path is normalized and traversal/absolute paths are rejected before the vault is touched.
@@ -106,7 +106,7 @@ The mobile build runs in Obsidian's iOS WebView and is verified to be free of `n
 - **Extensions, slash commands, shell tools, and write tools are excluded.** The first mobile profile is read-only by design.
 - Google Gemini is the only provider wired up so far; others join after their transport is validated on-device.
 
-`manifest.json` keeps `isDesktopOnly: true` until the spike passes on real iPad hardware; `mobile.js` exists so the on-device validation build has a browser-safe artifact to load.
+On mobile the settings tab shows only the capabilities the mobile plugin implements (API keys); the agent directory, extension inventory, and auto-context controls appear only on desktop.
 
 ## Using the chat
 
