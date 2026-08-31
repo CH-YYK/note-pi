@@ -127,8 +127,12 @@
   color: var(--interactive-accent);
   background: var(--background-secondary);
 }
-.note-pi-icon-button svg {
+/* Inside .note-pi-view's inline-size container, Chromium collapses
+   svg.svg-icon to zero width and ignores the width property (observed on
+   Obsidian mobile and mobile emulation); min-width is honored. */
+.note-pi-icon-button svg.svg-icon {
   width: 15px;
+  min-width: 15px;
   height: 15px;
 }
 
@@ -389,6 +393,7 @@
 }
 .note-pi-copy-button .svg-icon {
   width: 14px;
+  min-width: 14px;
   height: 14px;
 }
 .note-pi-message-assistant .note-pi-message-body {
@@ -502,6 +507,7 @@
 }
 .note-pi-context-chip-remove .svg-icon {
   width: 12px;
+  min-width: 12px;
   height: 12px;
 }
 .note-pi-context-add {
@@ -526,6 +532,7 @@
 }
 .note-pi-context-add-icon .svg-icon {
   width: 12px;
+  min-width: 12px;
   height: 12px;
 }
 .note-pi-suggestion {
@@ -811,6 +818,9 @@
   min-width: 44px;
   min-height: 44px;
   font-size: var(--font-ui-medium);
+  /* The mobile composer bar has no hint element, so nothing else pushes the
+     send button to the trailing edge. */
+  margin-left: auto;
 }
 
 .note-pi-mobile .note-pi-composer-box textarea {

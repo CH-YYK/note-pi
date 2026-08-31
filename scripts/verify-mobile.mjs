@@ -23,4 +23,12 @@ assert.equal(manifest.isDesktopOnly, false, "The plugin runs on desktop and mobi
 const universal = readFileSync("main.js", "utf8");
 assert.ok(universal.includes("isMobile"), "main.js must dispatch on Platform.isMobile.");
 
+// The universal bundle's Node-style resolution picks node variants of
+// packages behind export conditions; those read Node globals the iOS WebView
+// doesn't have ("Can't find variable: process" on device). The build pins
+// browser variants, so Node-only dependency trees must stay out of main.js.
+for (const forbidden of ["google-auth-library", "gcp-metadata", "gaxios"]) {
+  assert.ok(!universal.includes(forbidden), "main.js must not contain the Node-only dependency: " + forbidden);
+}
+
 console.log("Mobile bundle verification passed.");
