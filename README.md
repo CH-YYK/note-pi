@@ -100,7 +100,7 @@ Mobile:  MobileAgentView  -> MobileAgentController  -> MobileAgentRuntime -> pi-
 
 The mobile runtime runs in Obsidian's iOS WebView. `npm run build` also emits `mobile.js`, the mobile subtree bundled alone with esbuild's browser platform, so `npm run verify:mobile` can prove the mobile code is free of `node:` imports, `node-fetch`, the Node execution environment, and the jiti extension loader. Its boundaries:
 
-- **Provider transport** goes through Obsidian's `requestUrl`, the mobile-safe network path. `requestUrl` buffers responses, so provider output is not token-streamed over the wire, and an in-flight HTTP request cannot be aborted (the local agent loop still cancels immediately).
+- **Provider transport** is per-adapter. Gemini calls use the WebView's native `fetch`: the Gemini endpoint is CORS-enabled for the `app://obsidian.md` origin, and pi-ai's Google adapters reject a custom fetch. Providers whose adapters accept a custom fetch route through Obsidian's `requestUrl`, which bypasses WebView CORS restrictions. `requestUrl` buffers responses, so provider output is not token-streamed over the wire, and an in-flight HTTP request cannot be aborted (the local agent loop still cancels immediately).
 - **Vault access** is a single read-only tool implemented on Obsidian's vault APIs. Every agent-supplied path is normalized and traversal/absolute paths are rejected before the vault is touched.
 - **Sessions** persist through Obsidian's plugin data APIs instead of the filesystem, and resume after the view is closed and reopened.
 - **Extensions, slash commands, shell tools, and write tools are excluded.** The first mobile profile is read-only by design.

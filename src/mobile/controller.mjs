@@ -76,7 +76,15 @@ export class MobileAgentController {
 
   stream(model, context, options) {
     if (this.injectedStreamFn) return this.injectedStreamFn(model, context, options);
-    return this.models.streamSimple(model, context, { ...options, ...(this.fetchFn ? { fetch: this.fetchFn } : {}) });
+    // pi-ai's Google adapters create their own client and reject a custom
+    // fetch. Gemini's endpoint is CORS-enabled (verified: preflight allows
+    // the app://obsidian.md origin and the x-goog-api-key header), so the
+    // WebView's native fetch is the transport for Google. Providers whose
+    // adapters accept a custom fetch keep the requestUrl transport.
+    const providerId = model?.provider ?? this.providerId;
+    const adapterRejectsCustomFetch = providerId === "google" || providerId === "google-vertex";
+    const fetchOption = this.fetchFn && !adapterRejectsCustomFetch ? { fetch: this.fetchFn } : {};
+    return this.models.streamSimple(model, context, { ...options, ...fetchOption });
   }
 
   /**
