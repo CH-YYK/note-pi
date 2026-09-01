@@ -83,7 +83,9 @@ test("a session model changes without reapplying plugin configuration", async ()
     providerId: "openrouter",
     credentials: { openrouter: { type: "api_key", key: "test-key" } }
   });
-  await harness.setSessionModel("openai/gpt-4o-mini");
+  // Composite ref: "openai/" is now a real provider prefix, so an OpenRouter
+  // model whose catalog id starts with it must be provider-qualified.
+  await harness.setSessionModel("openrouter/openai/gpt-4o-mini");
 
   assert.equal(harness.modelId, "openai/gpt-4o-mini");
   assert.doesNotThrow(() => harness.createAgent());

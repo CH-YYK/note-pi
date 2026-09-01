@@ -5,6 +5,7 @@ import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
+import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { AUTH_PROVIDERS } from "../shared/providers.mjs";
 import { ExtensionRegistry, loadNotePiExtensions } from "./extensions.mjs";
@@ -14,7 +15,7 @@ export { nodeBackedFetch } from "./pi-agent-runtime.mjs";
 export { AUTH_PROVIDERS } from "../shared/providers.mjs";
 
 const providers = new Map(AUTH_PROVIDERS.map((provider) => [provider.id, provider]));
-const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, kimiCodingProvider, openrouterProvider];
+const providerFactories = [googleProvider, anthropicProvider, githubCopilotProvider, kimiCodingProvider, openaiProvider, openrouterProvider];
 
 /**
  * Chat model references outside the catalog are composite: `${providerId}/${modelId}`.

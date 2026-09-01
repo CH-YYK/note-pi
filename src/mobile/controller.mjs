@@ -58,6 +58,7 @@ export class MobileAgentController {
     this.runtime = new MobileAgentRuntime((model, context, options) => this.stream(model, context, options));
     this.fetchFn = undefined;
     this.providerId = "google";
+    this.providerCatalog = [];
     this.modelId = undefined;
     this.models = undefined;
     this.credentialStore = undefined;
@@ -92,23 +93,34 @@ export class MobileAgentController {
    * takes no filesystem paths: `models` is a configured pi-ai model catalog
    * and `credentials` come from Obsidian plugin data.
    *
-   * @param {object} [configuration]
-   * @param {string} [configuration.providerId]
-   * @param {Record<string, any>} [configuration.credentials]
-   * @param {Array<() => any>} [configuration.providerFactories]
-   * @param {string} [configuration.defaultModel]
-   * @param {(input: any, init?: any) => Promise<any>} [configuration.fetch]
-   */
-  async applyPluginConfiguration({ providerId = "google", credentials = {}, providerFactories = [], defaultModel, fetch } = {}) {
+  * @param {object} [configuration]
+  * @param {string} [configuration.providerId]
+  * @param {Record<string, any>} [configuration.credentials]
+  * @param {Array<() => any>} [configuration.providerFactories]
+  * @param {Array<{ id: string, label: string, defaultModel: string }>} [configuration.providerCatalog]
+  *   Mobile provider metadata (shared/providers.mjs entries). Drives the
+  *   configured-provider fallback, per-provider default models, and the
+  *   composite model references used by the composer picker.
+  * @param {string} [configuration.defaultModel]
+  * @param {(input: any, init?: any) => Promise<any>} [configuration.fetch]
+  */
+  async applyPluginConfiguration({ providerId = "google", credentials = {}, providerFactories = [], providerCatalog = [], defaultModel, fetch } = {}) {
     this.providerId = providerId;
+    this.providerCatalog = providerCatalog;
     this.credentialStore = new MobileCredentialStore(credentials);
     this.fetchFn = fetch;
     this.models = undefined;
     if (providerFactories.length) {
       this.models = createModels({ credentials: this.credentialStore });
       for (const factory of providerFactories) this.models.setProvider(factory());
-      const available = this.models.getModels(providerId);
-      this.modelId = available.some((model) => model.id === defaultModel) ? defaultModel : available[0]?.id;
+      // The requested provider is only a preference: chat follows the
+      // providers that actually have keys, so key management never breaks
+      // the chat view (same policy as the desktop harness).
+      const configured = providerCatalog.filter((provider) => this.providerState(provider.id) === "configured").map((provider) => provider.id);
+      if (!configured.includes(this.providerId) && configured.length) this.providerId = configured[0];
+      const preferred = providerCatalog.find((provider) => provider.id === this.providerId)?.defaultModel ?? defaultModel;
+      const available = this.models.getModels(this.providerId);
+      this.modelId = available.some((model) => model.id === preferred) ? preferred : available[0]?.id;
     }
     this.agent = undefined;
     await this.loadSessionStore();
@@ -158,7 +170,7 @@ export class MobileAgentController {
       title,
       createdAt: existing?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
-      modelId: this.modelId,
+      modelId: this.compositeModelId(),
       messages
     };
     try {
@@ -184,7 +196,11 @@ export class MobileAgentController {
     if (!session) throw new Error(`Unknown session: ${id}`);
     await this.persistActiveSession();
     this.activeSessionId = id;
-    if (session.modelId) this.modelId = session.modelId;
+    if (session.modelId) {
+      const ref = this.parseModelRef(session.modelId);
+      this.providerId = ref.providerId;
+      this.modelId = ref.modelId;
+    }
     this.agent = undefined;
     this.emit({ type: "session.state", snapshot: this.snapshot() });
   }
@@ -205,13 +221,61 @@ export class MobileAgentController {
   modelsForProvider() {
     if (this.injectedStreamFn) return [{ id: FAKE_MOBILE_MODEL.id, label: FAKE_MOBILE_MODEL.name }];
     if (!this.models) return [];
-    return this.models.getModels(this.providerId).map((model) => ({ id: model.id, label: model.name ?? model.id }));
+    const catalog = this.providerCatalog.filter((provider) => this.providerState(provider.id) === "configured");
+    if (!catalog.length) {
+      return this.models.getModels(this.providerId).map((model) => ({ id: model.id, label: model.name ?? model.id, provider: this.providerId }));
+    }
+    // The composer picker spans every provider with a saved key. Model ids
+    // are composite (providerId/modelId, the desktop convention) so picking
+    // a model also switches the active provider.
+    const multiple = catalog.length > 1;
+    const models = [];
+    for (const provider of catalog) {
+      for (const model of this.models.getModels(provider.id)) {
+        const name = model.name ?? model.id;
+        models.push({
+          id: provider.id + "/" + model.id,
+          label: multiple ? provider.label + " / " + name : name,
+          provider: provider.label
+        });
+      }
+    }
+    return models;
   }
 
-  async setSessionModel(modelId) {
-    const model = this.injectedStreamFn ? undefined : this.models?.getModel(this.providerId, modelId);
-    if (!this.injectedStreamFn && !model) throw new Error(`Chat model is unavailable: ${modelId}`);
-    this.modelId = this.injectedStreamFn ? FAKE_MOBILE_MODEL.id : model.id;
+  /** Composite chat-model reference: providerId/modelId (desktop convention). */
+  compositeModelId() {
+    if (this.injectedStreamFn || !this.modelId) return this.modelId;
+    return this.providerId + "/" + this.modelId;
+  }
+
+  parseModelRef(ref) {
+    const slash = typeof ref === "string" ? ref.indexOf("/") : -1;
+    if (slash > 0) {
+      const providerId = ref.slice(0, slash);
+      const modelId = ref.slice(slash + 1);
+      const known = this.providerCatalog.some((provider) => provider.id === providerId);
+      if (known && this.models?.getModel(providerId, modelId)) return { providerId, modelId };
+    }
+    // Bare ids (legacy session records) resolve against the active provider.
+    return { providerId: this.providerId, modelId: ref };
+  }
+
+  async setSessionModel(modelRef) {
+    if (this.injectedStreamFn) {
+      this.modelId = FAKE_MOBILE_MODEL.id;
+      this.agent = undefined;
+      this.emit({ type: "session.model.changed", snapshot: this.snapshot() });
+      return;
+    }
+    const ref = this.parseModelRef(modelRef);
+    if (this.providerState(ref.providerId) !== "configured") {
+      throw new Error(`Provider "${ref.providerId}" has no API key. Add one in Note Pi settings.`);
+    }
+    const model = this.models?.getModel(ref.providerId, ref.modelId);
+    if (!model) throw new Error(`Chat model is unavailable: ${modelRef}`);
+    this.providerId = ref.providerId;
+    this.modelId = model.id;
     this.agent = undefined;
     this.emit({ type: "session.model.changed", snapshot: this.snapshot() });
   }
@@ -220,6 +284,14 @@ export class MobileAgentController {
     if (!this.models) throw new Error("No provider catalog is available in this build.");
     if (!apiKey.trim()) throw new Error("Enter an API key before saving.");
     await this.models.login(providerId, "api_key", { prompt: async () => apiKey.trim(), notify: () => {} });
+    // First-run UX: when the active provider has no key, adopt the provider
+    // that was just configured so the chat view becomes usable immediately.
+    if (this.providerState() !== "configured" && this.providerState(providerId) === "configured") {
+      this.providerId = providerId;
+      const preferred = this.providerCatalog.find((provider) => provider.id === providerId)?.defaultModel;
+      const available = this.models.getModels(providerId);
+      this.modelId = available.some((model) => model.id === preferred) ? preferred : available[0]?.id;
+    }
     this.agent = undefined;
     this.emit({ type: "session.state", snapshot: this.snapshot() });
     return { ...this.credentialStore.credentials };
@@ -232,7 +304,9 @@ export class MobileAgentController {
       const remaining = Object.keys(this.credentialStore?.credentials ?? {}).filter((id) => this.providerState(id) === "configured");
       if (remaining.length) {
         this.providerId = remaining[0];
-        this.modelId = this.models.getModels(remaining[0])[0]?.id;
+        const preferred = this.providerCatalog.find((provider) => provider.id === remaining[0])?.defaultModel;
+        const available = this.models.getModels(remaining[0]);
+        this.modelId = available.some((model) => model.id === preferred) ? preferred : available[0]?.id;
       }
     }
     this.agent = undefined;
@@ -367,7 +441,7 @@ export class MobileAgentController {
     return {
       providerId: this.providerId,
       providerState: this.providerState(),
-      modelId: this.modelId,
+      modelId: this.compositeModelId(),
       models: this.modelsForProvider(),
       transcript: this.transcript(),
       usageTokens: this.usageTokens(),

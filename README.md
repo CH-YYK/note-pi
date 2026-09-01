@@ -7,7 +7,7 @@ An Obsidian plugin for desktop and mobile that opens a native-feeling chat pane 
 - Opens an Obsidian chat view from the command palette.
 - Attaches the focused note as lightweight context when a chat session starts (removable per chat), without making the note the agent's source of truth.
 - Streams status and assistant messages into the view, rendering assistant Markdown as it arrives.
-- Supports Google Gemini, Anthropic, GitHub Copilot, Kimi Code, and OpenRouter — multiple providers can hold keys at once, and the composer model picker spans all of them.
+- Supports Google Gemini, Anthropic, GitHub Copilot, Kimi Code, OpenAI, and OpenRouter — multiple providers can hold keys at once, and the composer model picker spans all of them.
 - Stores provider API keys and tokens in the plugin's local Obsidian data file, with an in-settings connection test for each key.
 - Checks Obsidian's embedded Node version against Pi's Node 22.19 runtime floor.
 - Loads pi-coding-agent-compatible extensions from the vault-local Pi agent directory (see Extensions below).
@@ -100,11 +100,11 @@ Mobile:  MobileAgentView  -> MobileAgentController  -> MobileAgentRuntime -> pi-
 
 The mobile runtime runs in Obsidian's iOS WebView. `npm run build` also emits `mobile.js`, the mobile subtree bundled alone with esbuild's browser platform, so `npm run verify:mobile` can prove the mobile code is free of `node:` imports, `node-fetch`, the Node execution environment, and the jiti extension loader. Its boundaries:
 
-- **Provider transport** is per-adapter. Gemini calls use the WebView's native `fetch`: the Gemini endpoint is CORS-enabled for the `app://obsidian.md` origin, and pi-ai's Google adapters reject a custom fetch. Providers whose adapters accept a custom fetch route through Obsidian's `requestUrl`, which bypasses WebView CORS restrictions. `requestUrl` buffers responses, so provider output is not token-streamed over the wire, and an in-flight HTTP request cannot be aborted (the local agent loop still cancels immediately).
+- **Provider transport** is per-adapter. Gemini calls use the WebView's native `fetch`: the Gemini endpoint is CORS-enabled for the `app://obsidian.md` origin, and pi-ai's Google adapters reject a custom fetch. Anthropic, Kimi Code, and OpenAI route through Obsidian's `requestUrl`, which bypasses WebView CORS restrictions. `requestUrl` buffers responses, so provider output is not token-streamed over the wire, and an in-flight HTTP request cannot be aborted (the local agent loop still cancels immediately).
 - **Vault access** is a single read-only tool implemented on Obsidian's vault APIs. Every agent-supplied path is normalized and traversal/absolute paths are rejected before the vault is touched.
 - **Sessions** persist through Obsidian's plugin data APIs instead of the filesystem, and resume after the view is closed and reopened.
 - **Extensions, slash commands, shell tools, and write tools are excluded.** The first mobile profile is read-only by design.
-- Google Gemini is the only provider wired up so far; others join after their transport is validated on-device.
+- Mobile supports Google Gemini, Anthropic, Kimi Code, and OpenAI. The composer model picker spans every provider with a saved key, and picking a model from another provider switches the active provider. GitHub Copilot stays desktop-only (its OAuth device flow needs a browser handoff); OpenRouter joins after its transport is validated on-device.
 
 On mobile the settings tab shows only the capabilities the mobile plugin implements (API keys); the agent directory, extension inventory, and auto-context controls appear only on desktop.
 

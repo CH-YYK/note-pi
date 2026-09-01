@@ -1,5 +1,8 @@
 import { Plugin, requestUrl } from "obsidian";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
+import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
+import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { AUTH_PROVIDERS, MOBILE_PROVIDER_IDS } from "../shared/providers.mjs";
 import { NotePiSettingsTab } from "../settings";
 import { MobileAgentController } from "./controller.mjs";
@@ -12,7 +15,12 @@ const DEFAULT_SETTINGS: MobileSettings = { providerId: "google", credentials: {}
 
 /** Providers validated for the iOS WebView build. */
 const MOBILE_PROVIDERS = AUTH_PROVIDERS.filter((provider) => MOBILE_PROVIDER_IDS.includes(provider.id));
-const providerFactories = { google: googleProvider };
+const MOBILE_PROVIDER_FACTORIES = {
+  google: googleProvider,
+  anthropic: anthropicProvider,
+  "kimi-coding": kimiCodingProvider,
+  openai: openaiProvider
+};
 
 /**
  * Mobile entry point (iPad/iPhone). This is a distinct runtime target from
@@ -99,8 +107,8 @@ export default class NotePiMobilePlugin extends Plugin {
     await this.startController().applyPluginConfiguration({
       providerId: provider.id,
       credentials: this.settings.credentials,
-      providerFactories: [providerFactories[provider.id as keyof typeof providerFactories] ?? googleProvider],
-      defaultModel: provider.defaultModel,
+      providerFactories: MOBILE_PROVIDERS.map((entry) => MOBILE_PROVIDER_FACTORIES[entry.id as keyof typeof MOBILE_PROVIDER_FACTORIES]),
+      providerCatalog: MOBILE_PROVIDERS,
       fetch: obsidianRequestUrlFetch(requestUrl)
     });
   }
