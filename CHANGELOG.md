@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-08-31
+
+### Added
+
+- Mobile provider support beyond Gemini: Anthropic, Kimi Code, and OpenAI now work on iPad/iPhone. Their adapters accept a custom fetch, so requests route through Obsidian's requestUrl transport, which bypasses WebView CORS restrictions; Gemini keeps the native-fetch transport. The WebView-safety test now runs a streaming probe per provider against canned SSE in a sandbox without Node globals.
+- OpenAI joins the provider catalog on desktop and mobile (API key, gpt-5.5 default).
+- The mobile composer model picker spans every provider with a saved key (composite provider/model ids, the desktop convention); picking a model from another provider switches the active provider. Chat also follows the configured providers: a preferred provider without a key falls back to a configured one, and saving the first key adopts that provider without a reload.
+
 ## [0.6.2] - 2026-08-30
 
 ### Fixed

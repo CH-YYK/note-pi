@@ -7,6 +7,16 @@ import { MobileAgentRuntime } from "../src/mobile/runtime.mjs";
 import { createFakeStreamFn, FAKE_MOBILE_MODEL } from "../src/mobile/fake-provider.mjs";
 import { createMobileVaultReadTool, normalizeVaultPath } from "../src/mobile/vault-adapter.mjs";
 import { obsidianRequestUrlFetch } from "../src/mobile/network.mjs";
+import { googleProvider } from "@earendil-works/pi-ai/providers/google";
+import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
+import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { AUTH_PROVIDERS, MOBILE_PROVIDER_IDS } from "../src/shared/providers.mjs";
+
+const MOBILE_CATALOG = AUTH_PROVIDERS.filter((provider) => MOBILE_PROVIDER_IDS.includes(provider.id));
+// Mirrors production wiring: every mobile provider factory is registered,
+// keys decide which providers are usable.
+const MOBILE_FACTORIES = [googleProvider, anthropicProvider, kimiCodingProvider, openaiProvider];
 
 function memoryStorage(initial) {
   const storage = {
@@ -196,6 +206,64 @@ test("session model changes stay ephemeral and emit a harness event", async () =
 
   assert.equal(controller.snapshot().modelId, FAKE_MOBILE_MODEL.id);
   assert.ok(events.includes("session.model.changed"));
+});
+
+test("mobile model picker spans every configured provider and selection switches providers", async () => {
+  const controller = new MobileAgentController({});
+  await controller.applyPluginConfiguration({
+    providerId: "google",
+    credentials: {
+      google: { type: "api_key", key: "google-key" },
+      anthropic: { type: "api_key", key: "anthropic-key" }
+    },
+    providerFactories: MOBILE_FACTORIES,
+    providerCatalog: MOBILE_CATALOG
+  });
+
+  const snapshot = controller.snapshot();
+  assert.equal(snapshot.providerState, "configured");
+  assert.equal(snapshot.modelId, "google/gemini-3.6-flash");
+  assert.ok(snapshot.models.some((model) => model.id === "google/gemini-3.6-flash"));
+  assert.ok(snapshot.models.some((model) => model.id === "anthropic/claude-sonnet-4-5"));
+  assert.ok(!snapshot.models.some((model) => model.id.startsWith("openai/")), "unconfigured providers stay out of the picker");
+
+  await controller.setSessionModel("anthropic/claude-sonnet-4-5");
+  assert.equal(controller.providerId, "anthropic");
+  assert.equal(controller.modelId, "claude-sonnet-4-5");
+  assert.equal(controller.snapshot().modelId, "anthropic/claude-sonnet-4-5");
+
+  await assert.rejects(() => controller.setSessionModel("openai/gpt-5.5"), /no API key/);
+});
+
+test("mobile controller falls back to a configured provider when the preference has no key", async () => {
+  const controller = new MobileAgentController({});
+  await controller.applyPluginConfiguration({
+    providerId: "google",
+    credentials: { anthropic: { type: "api_key", key: "anthropic-key" } },
+    providerFactories: MOBILE_FACTORIES,
+    providerCatalog: MOBILE_CATALOG
+  });
+
+  assert.equal(controller.providerId, "anthropic");
+  assert.equal(controller.modelId, "claude-sonnet-4-5");
+  assert.equal(controller.snapshot().providerState, "configured");
+});
+
+test("saving the first key adopts that provider so chat is usable without reload", async () => {
+  const controller = new MobileAgentController({});
+  await controller.applyPluginConfiguration({
+    providerId: "google",
+    credentials: {},
+    providerFactories: MOBILE_FACTORIES,
+    providerCatalog: MOBILE_CATALOG
+  });
+  assert.equal(controller.snapshot().providerState, "missing");
+
+  await controller.loginWithApiKey("openai", "openai-key");
+
+  assert.equal(controller.providerId, "openai");
+  assert.equal(controller.modelId, "gpt-5.5");
+  assert.equal(controller.snapshot().providerState, "configured");
 });
 
 test("Obsidian requestUrl transport adapts to the fetch shape providers expect", async () => {
